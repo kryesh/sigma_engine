@@ -49,10 +49,17 @@
 //! across threads.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+use once_cell::sync::Lazy;
+use regex::Regex;
 
 use crate::error::{Error, Result};
 use crate::types::*;
+
+// Cache for compiled regex patterns
+static REGEX_CACHE: Lazy<Mutex<HashMap<String, std::result::Result<Regex, String>>>> = 
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// A compiled matcher for a Sigma detection rule.
 ///
@@ -479,16 +486,48 @@ impl SigmaRuleMatcher {
 
     /// Match a regex pattern against a value.
     fn match_regex(&self, regex_str: &str, value: &str, modifiers: &[Modifier]) -> bool {
-        // For a production implementation, we should use the regex crate and cache compiled patterns
-        // For now, we'll do a simple substring match as a placeholder
-        // TODO: Implement proper regex matching with the regex crate
-        
-        let case_insensitive = modifiers.contains(&Modifier::I);
-        if case_insensitive {
-            value.to_lowercase().contains(&regex_str.to_lowercase())
-        } else {
-            value.contains(regex_str)
+        // Build regex flags from modifiers
+        let mut flags = String::new();
+        if modifiers.contains(&Modifier::I) {
+            flags.push_str("(?i)");
         }
+        if modifiers.contains(&Modifier::M) {
+            flags.push_str("(?m)");
+        }
+        if modifiers.contains(&Modifier::S) {
+            flags.push_str("(?s)");
+        }
+
+        let pattern = format!("{}{}", flags, regex_str);
+
+        // Check cache first
+        {
+            let cache = REGEX_CACHE.lock().unwrap();
+            if let Some(cached) = cache.get(&pattern) {
+                return match cached {
+                    Ok(regex) => regex.is_match(value),
+                    Err(_) => false, // Cached as invalid
+                };
+            }
+        }
+
+        // Compile and cache
+        let result = Regex::new(&pattern);
+        let matches = match &result {
+            Ok(regex) => regex.is_match(value),
+            Err(_) => false,
+        };
+
+        // Cache the result (either the compiled regex or the error)
+        {
+            let mut cache = REGEX_CACHE.lock().unwrap();
+            cache.insert(
+                pattern,
+                result.map_err(|e| e.to_string()),
+            );
+        }
+
+        matches
     }
 
     /// Match numeric comparisons for integers.
@@ -997,5 +1036,69 @@ detection:
         let mut event2 = HashMap::new();
         event2.insert("Image".to_string(), "cmd.exe".to_string());
         assert!(matcher.matches(&event2));
+    }
+
+    #[test]
+    fn test_matcher_regex() {
+        let yaml = r#"
+title: Test Rule
+logsource:
+    product: windows
+detection:
+    selection:
+        CommandLine|re: '^powershell\.exe.*-enc.*$'
+    condition: selection
+"#;
+        let collection = SigmaCollection::from_yaml(yaml).unwrap();
+        let rule = match &collection.documents[0] {
+            SigmaDocument::Rule(r) => r.clone(),
+            _ => panic!("Expected rule"),
+        };
+
+        let matcher = SigmaRuleMatcher::new(rule).unwrap();
+
+        let mut event1 = HashMap::new();
+        event1.insert("CommandLine".to_string(), "powershell.exe -enc abc123".to_string());
+        assert!(matcher.matches(&event1));
+
+        let mut event2 = HashMap::new();
+        event2.insert("CommandLine".to_string(), "cmd.exe -enc abc123".to_string());
+        assert!(!matcher.matches(&event2));
+
+        let mut event3 = HashMap::new();
+        event3.insert("CommandLine".to_string(), "test powershell.exe -enc abc123".to_string());
+        assert!(!matcher.matches(&event3));
+    }
+
+    #[test]
+    fn test_matcher_regex_case_insensitive() {
+        let yaml = r#"
+title: Test Rule
+logsource:
+    product: windows
+detection:
+    selection:
+        User|re|i: '^admin'
+    condition: selection
+"#;
+        let collection = SigmaCollection::from_yaml(yaml).unwrap();
+        let rule = match &collection.documents[0] {
+            SigmaDocument::Rule(r) => r.clone(),
+            _ => panic!("Expected rule"),
+        };
+
+        let matcher = SigmaRuleMatcher::new(rule).unwrap();
+
+        let mut event1 = HashMap::new();
+        event1.insert("User".to_string(), "Administrator".to_string());
+        assert!(matcher.matches(&event1));
+
+        let mut event2 = HashMap::new();
+        event2.insert("User".to_string(), "ADMIN".to_string());
+        assert!(matcher.matches(&event2));
+
+        let mut event3 = HashMap::new();
+        event3.insert("User".to_string(), "testadmin".to_string());
+        assert!(!matcher.matches(&event3));
     }
 }

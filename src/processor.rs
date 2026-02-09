@@ -177,6 +177,9 @@ impl LogEvent {
     }
 
     /// Parse Field="Value" format into field-value pairs.
+    /// 
+    /// Note: Field names cannot contain '=' characters. The first '=' encountered
+    /// is treated as the separator between field name and value.
     fn parse_field_value_format(text: &str) -> HashMap<String, String> {
         let mut fields = HashMap::new();
         let mut chars = text.chars().peekable();
