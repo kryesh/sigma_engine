@@ -116,7 +116,6 @@
 //!     category: Some("process_creation".to_string()),
 //!     product: Some("windows".to_string()),
 //!     service: None,
-//!     custom: HashMap::new(),
 //! };
 //!
 //! let mut data = HashMap::new();

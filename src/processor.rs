@@ -37,7 +37,7 @@
 //!     category: Some("process_creation".to_string()),
 //!     product: Some("windows".to_string()),
 //!     service: None,
-//!     custom: HashMap::new(),
+//!     
 //! };
 //!
 //! let json = r#"{"EventID": 4688, "Image": "cmd.exe"}"#;
@@ -434,18 +434,6 @@ impl LogProcessor {
             }
         }
 
-        // Check custom fields
-        for (key, rule_value) in &rule_source.custom {
-            match event_source.custom.get(key) {
-                Some(event_value) => {
-                    if !event_value.eq_ignore_ascii_case(rule_value) {
-                        return false;
-                    }
-                }
-                None => return false,
-            }
-        }
-
         true
     }
 }
@@ -460,7 +448,7 @@ mod tests {
             category: Some("process_creation".to_string()),
             product: Some("windows".to_string()),
             service: None,
-            custom: HashMap::new(),
+            
         };
 
         let json = r#"{"EventID": 4688, "Image": "C:\\Windows\\System32\\cmd.exe"}"#;
@@ -476,7 +464,7 @@ mod tests {
             category: Some("test".to_string()),
             product: None,
             service: None,
-            custom: HashMap::new(),
+            
         };
 
         let text = "This is a plain log message".to_string();
@@ -491,7 +479,7 @@ mod tests {
             category: Some("test".to_string()),
             product: None,
             service: None,
-            custom: HashMap::new(),
+            
         };
 
         let text = r#"EventID="4688" User="SYSTEM" CommandLine="cmd.exe /c echo test""#;
@@ -508,7 +496,7 @@ mod tests {
             category: Some("process_creation".to_string()),
             product: Some("windows".to_string()),
             service: None,
-            custom: HashMap::new(),
+            
         };
 
         // Exact match
@@ -516,7 +504,7 @@ mod tests {
             category: Some("process_creation".to_string()),
             product: Some("windows".to_string()),
             service: None,
-            custom: HashMap::new(),
+            
         };
         assert!(LogProcessor::log_source_matches(&event_source1, &rule_source));
 
@@ -525,7 +513,7 @@ mod tests {
             category: Some("process_creation".to_string()),
             product: Some("windows".to_string()),
             service: Some("security".to_string()),
-            custom: HashMap::new(),
+            
         };
         assert!(LogProcessor::log_source_matches(&event_source2, &rule_source));
 
@@ -534,7 +522,7 @@ mod tests {
             category: Some("process_creation".to_string()),
             product: None,
             service: None,
-            custom: HashMap::new(),
+            
         };
         assert!(!LogProcessor::log_source_matches(&event_source3, &rule_source));
 
@@ -543,7 +531,7 @@ mod tests {
             category: Some("network_connection".to_string()),
             product: Some("windows".to_string()),
             service: None,
-            custom: HashMap::new(),
+            
         };
         assert!(!LogProcessor::log_source_matches(&event_source4, &rule_source));
     }
@@ -575,7 +563,7 @@ detection:
             category: Some("process_creation".to_string()),
             product: Some("windows".to_string()),
             service: None,
-            custom: HashMap::new(),
+            
         };
 
         let mut data = HashMap::new();
