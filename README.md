@@ -150,30 +150,6 @@ let text = r#"EventID="4688" User="SYSTEM" CommandLine="cmd.exe""#;
 let event = LogEvent::from_field_value_format(log_source, text);
 ```
 
-## Examples
-
-Run the basic matching example:
-
-```bash
-cargo run --example basic_matching
-```
-
-This demonstrates:
-- Parsing multiple Sigma rules
-- Creating a multithreaded processor
-- Sending events in different formats
-- Receiving and displaying detections
-
-Run the modifier demonstration example:
-
-```bash
-cargo run --example modifier_demo
-```
-
-This demonstrates:
-- Using `base64offset` to detect base64-encoded strings with any byte alignment
-- Using `windash` to detect Windows command-line flags with any dash character variant
-
 ## Advanced Modifiers
 
 ### base64offset
