@@ -476,7 +476,20 @@ fn parse_detection_map(map: &Mapping) -> Result<Vec<DetectionItem>, Error> {
             .as_str()
             .ok_or_else(|| Error::InvalidDetection(format!("Map key must be a string: {key:?}")))?;
         let (field, modifiers) = parse_field_and_modifiers(key_str)?;
-        let values = yaml_to_sigma_values(value)?;
+        let mut values = yaml_to_sigma_values(value)?;
+        
+        // Apply expand modifier if present to convert %name% patterns into placeholders
+        if modifiers.contains(&Modifier::Expand) {
+            values = values.into_iter().map(|v| {
+                match v {
+                    SigmaValue::String(sigma_string) => {
+                        SigmaValue::String(expand_placeholders(&sigma_string))
+                    }
+                    other => other,
+                }
+            }).collect();
+        }
+        
         items.push(DetectionItem {
             field,
             modifiers,
