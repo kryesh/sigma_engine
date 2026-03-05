@@ -72,9 +72,9 @@ fn parse_document(value: Value) -> Result<SigmaDocument, Error> {
         .as_mapping()
         .ok_or_else(|| Error::InvalidDocument("Expected a YAML mapping at document root".into()))?;
 
-    if map.contains_key(&Value::String("correlation".into())) {
+    if map.contains_key(Value::String("correlation".into())) {
         Ok(SigmaDocument::Correlation(parse_correlation_rule(map)?))
-    } else if map.contains_key(&Value::String("detection".into())) {
+    } else if map.contains_key(Value::String("detection".into())) {
         Ok(SigmaDocument::Rule(parse_detection_rule(map)?))
     } else {
         Err(Error::InvalidDocument(
@@ -933,10 +933,10 @@ fn parse_correlation_rule(map: &Mapping) -> Result<SigmaCorrelationRule, Error> 
 fn collect_custom_fields(map: &Mapping, known: &[&str]) -> HashMap<String, serde_yaml::Value> {
     let mut custom = HashMap::new();
     for (key, value) in map {
-        if let Some(k) = key.as_str() {
-            if !known.contains(&k) {
-                custom.insert(k.to_string(), value.clone());
-            }
+        if let Some(k) = key.as_str()
+            && !known.contains(&k)
+        {
+            custom.insert(k.to_string(), value.clone());
         }
     }
     custom

@@ -154,8 +154,7 @@ impl LogEvent {
             }
             JsonValue::Array(arr) => {
                 // Convert arrays to comma-separated strings
-                let values: Vec<String> =
-                    arr.iter().map(|v| Self::json_value_to_string(v)).collect();
+                let values: Vec<String> = arr.iter().map(Self::json_value_to_string).collect();
                 fields.insert(prefix, values.join(","));
             }
             _ => {
@@ -185,7 +184,7 @@ impl LogEvent {
 
         while chars.peek().is_some() {
             // Skip whitespace
-            while chars.peek().map_or(false, |c| c.is_whitespace()) {
+            while chars.peek().is_some_and(|c| c.is_whitespace()) {
                 chars.next();
             }
 
@@ -205,7 +204,7 @@ impl LogEvent {
             }
 
             // Skip whitespace after '='
-            while chars.peek().map_or(false, |c| c.is_whitespace()) {
+            while chars.peek().is_some_and(|c| c.is_whitespace()) {
                 chars.next();
             }
 
@@ -373,16 +372,16 @@ impl LogProcessor {
         while let Ok(event) = event_rx.recv() {
             // Try each matcher that matches the log source
             for matcher in &matchers {
-                if Self::log_source_matches(&event.log_source, &matcher.rule.logsource) {
-                    if matcher.matches(&event.data) {
-                        let detection = Detection {
-                            rule: matcher.rule.clone(),
-                            event: event.clone(),
-                        };
-                        // If send fails, the receiver was dropped, so we should exit
-                        if detection_tx.send(detection).is_err() {
-                            return;
-                        }
+                if Self::log_source_matches(&event.log_source, &matcher.rule.logsource)
+                    && matcher.matches(&event.data)
+                {
+                    let detection = Detection {
+                        rule: matcher.rule.clone(),
+                        event: event.clone(),
+                    };
+                    // If send fails, the receiver was dropped, so we should exit
+                    if detection_tx.send(detection).is_err() {
+                        return;
                     }
                 }
             }
