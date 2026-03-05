@@ -49,7 +49,9 @@
 //! `SigmaRuleMatcher` is thread-safe and uses `Arc` internally for efficient sharing
 //! across threads.
 
-use std::collections::HashMap;
+use std::borrow::Borrow;
+use std::collections::{BTreeMap, HashMap};
+use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 
 use once_cell::sync::Lazy;
@@ -108,6 +110,73 @@ enum CompiledPattern {
     Bool(bool),
     /// Null value
     Null,
+}
+
+/// A generic event that allows matching on references
+pub trait Event {
+    /// Check if the event contains a given field
+    fn contains_key(&self, key: &str) -> bool;
+
+    /// Retrieve the value in a given field
+    fn get(&self, key: &str) -> Option<&str>;
+
+    /// Iterate over all values in the event
+    fn values(&self) -> impl Iterator<Item = &str>;
+
+    /// Get the raw value of an event
+    ///
+    /// Default implementation joins all field values
+    fn raw<'a>(&'a self) -> Option<impl AsRef<str> + 'a> {
+        let mut buf = String::new();
+        let mut iter = self.values().peekable();
+
+        while let Some(val) = iter.next() {
+            buf.push_str(val.as_ref());
+            if iter.peek().is_some() {
+                buf.push(' ');
+            }
+        }
+
+        Some(buf)
+    }
+}
+
+// Implement the event trait for hashmaps of string-like keys/values
+impl<K, V> Event for HashMap<K, V>
+where
+    K: Eq + Hash + Borrow<str>,
+    V: AsRef<str>,
+{
+    fn contains_key(&self, key: &str) -> bool {
+        HashMap::contains_key(self, key)
+    }
+
+    fn get(&self, key: &str) -> Option<&str> {
+        HashMap::get(self, key).map(|v| v.as_ref())
+    }
+
+    fn values(&self) -> impl Iterator<Item = &str> {
+        HashMap::values(self).map(|v| v.as_ref())
+    }
+}
+
+// Implement the event trait for btree maps of string-like keys/values
+impl<K, V> Event for BTreeMap<K, V>
+where
+    K: Eq + Ord + Borrow<str>,
+    V: AsRef<str>,
+{
+    fn contains_key(&self, key: &str) -> bool {
+        BTreeMap::contains_key(self, key)
+    }
+
+    fn get(&self, key: &str) -> Option<&str> {
+        BTreeMap::get(self, key).map(|v| v.as_ref())
+    }
+
+    fn values(&self) -> impl Iterator<Item = &str> {
+        BTreeMap::values(self).map(|v| v.as_ref())
+    }
 }
 
 impl SigmaRuleMatcher {
@@ -433,7 +502,7 @@ impl SigmaRuleMatcher {
     ///
     /// # Returns
     /// `true` if the event matches any of the rule's conditions, `false` otherwise
-    pub fn matches(&self, event: &HashMap<String, String>) -> bool {
+    pub fn matches<E: Event>(&self, event: &E) -> bool {
         // Evaluate all conditions (they are implicitly OR-connected)
         for condition in &self.rule.detection.conditions {
             if self.eval_condition(condition, event) {
@@ -444,7 +513,7 @@ impl SigmaRuleMatcher {
     }
 
     /// Evaluate a condition expression against an event.
-    fn eval_condition(&self, expr: &ConditionExpression, event: &HashMap<String, String>) -> bool {
+    fn eval_condition<E: Event>(&self, expr: &ConditionExpression, event: &E) -> bool {
         match expr {
             ConditionExpression::Identifier(name) => self.eval_search_identifier(name, event),
             ConditionExpression::And(left, right) => {
@@ -462,7 +531,7 @@ impl SigmaRuleMatcher {
     }
 
     /// Evaluate a search identifier against an event.
-    fn eval_search_identifier(&self, name: &str, event: &HashMap<String, String>) -> bool {
+    fn eval_search_identifier<E: Event>(&self, name: &str, event: &E) -> bool {
         if let Some(search) = self.compiled_searches.get(name) {
             match search {
                 CompiledSearch::Map(items) => self.eval_detection_items_and(items, event),
@@ -482,10 +551,10 @@ impl SigmaRuleMatcher {
     }
 
     /// Evaluate a list of detection items with AND logic.
-    fn eval_detection_items_and(
+    fn eval_detection_items_and<E: Event>(
         &self,
         items: &[CompiledDetectionItem],
-        event: &HashMap<String, String>,
+        event: &E,
     ) -> bool {
         for item in items {
             if !self.eval_detection_item(item, event) {
@@ -496,11 +565,7 @@ impl SigmaRuleMatcher {
     }
 
     /// Evaluate a single detection item against an event.
-    fn eval_detection_item(
-        &self,
-        item: &CompiledDetectionItem,
-        event: &HashMap<String, String>,
-    ) -> bool {
+    fn eval_detection_item<E: Event>(&self, item: &CompiledDetectionItem, event: &E) -> bool {
         // Handle exists modifier
         if item.modifiers.contains(&Modifier::Exists) {
             if let Some(field) = &item.field {
@@ -513,35 +578,42 @@ impl SigmaRuleMatcher {
             return false;
         }
 
-        // Get the value to match against
-        let value_to_match = if let Some(field) = &item.field {
+        if let Some(field) = &item.field {
             // Field matching
             if let Some(val) = event.get(field) {
-                val.clone()
+                self.match_patterns(&item.patterns, &item.modifiers, val)
             } else {
                 // Field doesn't exist in event
-                return false;
+                false
             }
         } else {
             // Keyword search - match against all field values or entire event
-            event.values().cloned().collect::<Vec<_>>().join(" ")
-        };
+            let Some(raw) = event.raw() else {
+                return false;
+            };
 
-        // Check if ALL modifier is present
-        let use_all_logic = item.modifiers.contains(&Modifier::All);
+            self.match_patterns(&item.patterns, &item.modifiers, raw.as_ref())
+        }
+    }
 
-        if use_all_logic {
+    fn match_patterns(
+        &self,
+        patterns: &[CompiledPattern],
+        modifiers: &[Modifier],
+        value: &str,
+    ) -> bool {
+        if modifiers.contains(&Modifier::All) {
             // ALL: all patterns must match
-            for pattern in &item.patterns {
-                if !self.match_pattern(pattern, &value_to_match, &item.modifiers) {
+            for pattern in patterns {
+                if !self.match_pattern(pattern, value, modifiers) {
                     return false;
                 }
             }
             true
         } else {
             // Default OR: any pattern can match
-            for pattern in &item.patterns {
-                if self.match_pattern(pattern, &value_to_match, &item.modifiers) {
+            for pattern in patterns {
+                if self.match_pattern(pattern, value, modifiers) {
                     return true;
                 }
             }
@@ -745,7 +817,7 @@ impl SigmaRuleMatcher {
     }
 
     /// Evaluate "1 of them" - any non-underscore-prefixed search identifier matches.
-    fn eval_one_of_them(&self, event: &HashMap<String, String>) -> bool {
+    fn eval_one_of_them<E: Event>(&self, event: &E) -> bool {
         for name in self.compiled_searches.keys() {
             if !name.starts_with('_') && self.eval_search_identifier(name, event) {
                 return true;
@@ -755,7 +827,7 @@ impl SigmaRuleMatcher {
     }
 
     /// Evaluate "all of them" - all non-underscore-prefixed search identifiers match.
-    fn eval_all_of_them(&self, event: &HashMap<String, String>) -> bool {
+    fn eval_all_of_them<E: Event>(&self, event: &E) -> bool {
         let mut found_any = false;
         for name in self.compiled_searches.keys() {
             if !name.starts_with('_') {
@@ -769,7 +841,7 @@ impl SigmaRuleMatcher {
     }
 
     /// Evaluate "1 of pattern" - any matching search identifier matches.
-    fn eval_one_of_pattern(&self, pattern: &str, event: &HashMap<String, String>) -> bool {
+    fn eval_one_of_pattern<E: Event>(&self, pattern: &str, event: &E) -> bool {
         for name in self.compiled_searches.keys() {
             if self.match_identifier_pattern(name, pattern)
                 && self.eval_search_identifier(name, event)
@@ -781,7 +853,7 @@ impl SigmaRuleMatcher {
     }
 
     /// Evaluate "all of pattern" - all matching search identifiers match.
-    fn eval_all_of_pattern(&self, pattern: &str, event: &HashMap<String, String>) -> bool {
+    fn eval_all_of_pattern<E: Event>(&self, pattern: &str, event: &E) -> bool {
         let mut found_any = false;
         for name in self.compiled_searches.keys() {
             if self.match_identifier_pattern(name, pattern) {
