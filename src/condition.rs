@@ -13,10 +13,10 @@ enum Token {
     And,
     Or,
     Not,
-    One,   // literal "1"
-    All,   // keyword "all"
-    Of,    // keyword "of"
-    Them,  // keyword "them"
+    One,  // literal "1"
+    All,  // keyword "all"
+    Of,   // keyword "of"
+    Them, // keyword "them"
     LParen,
     RParen,
     Ident(String),
@@ -390,6 +390,9 @@ mod tests {
     fn error_after_of() {
         // `1 of` followed by an invalid token (e.g. `and`)
         let err = parse_condition("1 of and").unwrap_err();
-        assert!(err.to_string().contains("Expected 'them' or pattern after 'of'"));
+        assert!(
+            err.to_string()
+                .contains("Expected 'them' or pattern after 'of'")
+        );
     }
 }

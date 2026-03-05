@@ -16,7 +16,7 @@
 //!
 //! - **Rule Parsing**: Parse Sigma rules from YAML into structured Rust types
 //! - **Rule Matching**: Compile Sigma rules into efficient matchers that can match events
-//! - **Modifier Support**: Full support for Sigma modifiers (contains, startswith, endswith, 
+//! - **Modifier Support**: Full support for Sigma modifiers (contains, startswith, endswith,
 //!   regex, base64, utf16, wildcards, numeric comparisons, and more)
 //! - **Multithreaded Processing**: Process log events using multiple threads with message passing
 //! - **Log Source Matching**: Automatic dispatching of events to matching rules based on log source
@@ -133,17 +133,17 @@
 
 pub mod condition;
 pub mod error;
+pub mod matcher;
 mod parser;
 pub mod pipeline;
-pub mod types;
-pub mod matcher;
 pub mod processor;
+pub mod types;
 
 pub use error::Error;
-pub use pipeline::*;
-pub use types::*;
 pub use matcher::SigmaRuleMatcher;
-pub use processor::{LogProcessor, Detection, LogEvent};
+pub use pipeline::*;
+pub use processor::{Detection, LogEvent, LogProcessor};
+pub use types::*;
 
 // Re-export chrono's NaiveDate for date field access
 pub use chrono::NaiveDate;
@@ -203,9 +203,7 @@ tags:
                 assert!(items[0].modifiers.is_empty());
                 assert_eq!(
                     items[0].values,
-                    vec![SigmaValue::String(
-                        r"C:\Windows\System32\whoami.exe".into()
-                    )]
+                    vec![SigmaValue::String(r"C:\Windows\System32\whoami.exe".into())]
                 );
             }
             _ => panic!("Expected Map"),
@@ -259,10 +257,7 @@ level: medium
 
         // CommandLine|contains|all
         assert_eq!(sel[1].field.as_deref(), Some("CommandLine"));
-        assert_eq!(
-            sel[1].modifiers,
-            vec![Modifier::Contains, Modifier::All]
-        );
+        assert_eq!(sel[1].modifiers, vec![Modifier::Contains, Modifier::All]);
         assert_eq!(sel[1].values.len(), 2);
 
         // Condition: selection and not filter
@@ -352,10 +347,7 @@ detection:
             SearchIdentifier::Map(items) => items,
             _ => panic!("Expected Map"),
         };
-        assert_eq!(
-            empty_items[0].values,
-            vec![SigmaValue::String("".into())]
-        );
+        assert_eq!(empty_items[0].values, vec![SigmaValue::String("".into())]);
     }
 
     #[test]
@@ -498,8 +490,14 @@ level: high
             _ => panic!("Expected Correlation"),
         };
         assert_eq!(corr.title, "Many failed logins");
-        assert_eq!(corr.correlation.correlation_type, CorrelationType::EventCount);
-        assert_eq!(corr.correlation.rules, vec!["5638f7c0-ac70-491d-8465-2a65075e0d86"]);
+        assert_eq!(
+            corr.correlation.correlation_type,
+            CorrelationType::EventCount
+        );
+        assert_eq!(
+            corr.correlation.rules,
+            vec!["5638f7c0-ac70-491d-8465-2a65075e0d86"]
+        );
         assert_eq!(corr.correlation.group_by, vec!["ComputerName"]);
         assert_eq!(corr.correlation.timespan.as_deref(), Some("1h"));
         match &corr.correlation.condition {
@@ -565,10 +563,7 @@ correlation:
             SigmaDocument::Correlation(c) => c,
             _ => panic!("Expected Correlation"),
         };
-        assert_eq!(
-            corr.correlation.correlation_type,
-            CorrelationType::Temporal
-        );
+        assert_eq!(corr.correlation.correlation_type, CorrelationType::Temporal);
         assert_eq!(
             corr.correlation.rules,
             vec!["recon_cmd_a", "recon_cmd_b", "recon_cmd_c"]
@@ -671,10 +666,7 @@ correlation:
             SigmaDocument::Correlation(c) => c,
             _ => panic!("Expected Correlation"),
         };
-        assert_eq!(
-            corr.correlation.correlation_type,
-            CorrelationType::ValueSum
-        );
+        assert_eq!(corr.correlation.correlation_type, CorrelationType::ValueSum);
         match &corr.correlation.condition {
             Some(CorrelationCondition::Simple(sc)) => {
                 assert_eq!(sc.field.as_deref(), Some("bytes_sent"));
@@ -764,10 +756,7 @@ detection:
         match &coll.documents[1] {
             SigmaDocument::Correlation(c) => {
                 assert_eq!(c.name.as_deref(), Some("multiple_failed_login"));
-                assert_eq!(
-                    c.correlation.correlation_type,
-                    CorrelationType::EventCount
-                );
+                assert_eq!(c.correlation.correlation_type, CorrelationType::EventCount);
             }
             _ => panic!("Expected Correlation"),
         }
@@ -907,9 +896,15 @@ detection:
 
         match &collection.documents[0] {
             SigmaDocument::Rule(rule) => {
-                assert_eq!(rule.date, Some(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()));
-                assert_eq!(rule.modified, Some(NaiveDate::from_ymd_opt(2024, 2, 20).unwrap()));
-                
+                assert_eq!(
+                    rule.date,
+                    Some(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap())
+                );
+                assert_eq!(
+                    rule.modified,
+                    Some(NaiveDate::from_ymd_opt(2024, 2, 20).unwrap())
+                );
+
                 // Demonstrate date comparison
                 let creation = rule.date.unwrap();
                 let modification = rule.modified.unwrap();
@@ -1113,7 +1108,10 @@ correlation:
             SigmaDocument::Correlation(c) => c,
             _ => panic!("Expected Correlation"),
         };
-        assert_eq!(corr2.correlation.correlation_type, CorrelationType::ValuePercentile);
+        assert_eq!(
+            corr2.correlation.correlation_type,
+            CorrelationType::ValuePercentile
+        );
     }
 
     #[test]
@@ -1197,7 +1195,11 @@ detection:
             _ => panic!("Expected Map"),
         };
         if let SigmaValue::String(s) = &items[0].values[0] {
-            assert!(s.parts.iter().any(|p| matches!(p, SigmaStringPart::Placeholder(name) if name == "SystemRoot")));
+            assert!(
+                s.parts.iter().any(
+                    |p| matches!(p, SigmaStringPart::Placeholder(name) if name == "SystemRoot")
+                )
+            );
         }
     }
 
@@ -1260,7 +1262,10 @@ detection:
         - 42
 "#;
         let err = SigmaCollection::from_yaml(yaml).unwrap_err();
-        assert!(err.to_string().contains("Condition list items must be strings"));
+        assert!(
+            err.to_string()
+                .contains("Condition list items must be strings")
+        );
     }
 
     #[test]
@@ -1369,7 +1374,10 @@ correlation:
         - bad
 "#;
         let err = SigmaCollection::from_yaml(yaml).unwrap_err();
-        assert!(err.to_string().contains("Correlation condition must be a string or mapping"));
+        assert!(
+            err.to_string()
+                .contains("Correlation condition must be a string or mapping")
+        );
     }
 
     #[test]
@@ -1432,8 +1440,14 @@ custom_corr_key: val
         assert_eq!(corr.description.as_deref(), Some("correlation desc"));
         assert_eq!(corr.author.as_deref(), Some("Tester"));
         assert_eq!(corr.references, vec!["https://example.com"]);
-        assert_eq!(corr.date, Some(chrono::NaiveDate::from_ymd_opt(2024, 3, 1).unwrap()));
-        assert_eq!(corr.modified, Some(chrono::NaiveDate::from_ymd_opt(2024, 4, 1).unwrap()));
+        assert_eq!(
+            corr.date,
+            Some(chrono::NaiveDate::from_ymd_opt(2024, 3, 1).unwrap())
+        );
+        assert_eq!(
+            corr.modified,
+            Some(chrono::NaiveDate::from_ymd_opt(2024, 4, 1).unwrap())
+        );
         assert_eq!(corr.taxonomy.as_deref(), Some("sigma"));
         assert_eq!(corr.falsepositives, vec!["fp1"]);
         assert_eq!(corr.level, Some(Level::Critical));
@@ -1817,4 +1831,3 @@ correlation:
         assert!(err.to_string().contains("aliases") || err.to_string().contains("string"));
     }
 }
-

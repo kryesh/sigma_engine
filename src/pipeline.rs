@@ -54,10 +54,12 @@
 //! }
 //! ```
 
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 use crate::error::{Error, Result};
-use crate::types::{SigmaRule, DetectionItem, SearchIdentifier, SigmaValue, SigmaString, SigmaStringPart};
+use crate::types::{
+    DetectionItem, SearchIdentifier, SigmaRule, SigmaString, SigmaStringPart, SigmaValue,
+};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 // ─── Pipeline Types ──────────────────────────────────────────────────────────
 
@@ -67,15 +69,15 @@ pub struct ProcessingPipeline {
     /// Name of the pipeline.
     #[serde(default)]
     pub name: String,
-    
+
     /// Priority for ordering multiple pipelines (higher = applied earlier).
     #[serde(default)]
     pub priority: i32,
-    
+
     /// Ordered list of transformations to apply.
     #[serde(default)]
     pub transformations: Vec<ProcessingItem>,
-    
+
     /// Variables for placeholder replacement (used by `value_placeholders` transformation).
     /// Maps placeholder names to lists of replacement values.
     /// Available to all transformations via the pipeline context.
@@ -88,7 +90,7 @@ impl ProcessingPipeline {
     pub fn from_yaml(yaml: &str) -> Result<Self> {
         serde_yaml::from_str(yaml).map_err(Error::from)
     }
-    
+
     /// Apply this pipeline to a Sigma rule, transforming it in place.
     pub fn apply(&self, rule: &mut SigmaRule) -> Result<()> {
         for item in &self.transformations {
@@ -96,12 +98,15 @@ impl ProcessingPipeline {
         }
         Ok(())
     }
-    
+
     /// Apply multiple pipelines to a rule, sorted by priority (lower priority first).
-    pub fn apply_multiple(pipelines: &mut [ProcessingPipeline], rule: &mut SigmaRule) -> Result<()> {
+    pub fn apply_multiple(
+        pipelines: &mut [ProcessingPipeline],
+        rule: &mut SigmaRule,
+    ) -> Result<()> {
         // Sort by priority (ascending - lower priority values are applied first)
         pipelines.sort_by(|a, b| a.priority.cmp(&b.priority));
-        
+
         for pipeline in pipelines {
             pipeline.apply(rule)?;
         }
@@ -115,19 +120,19 @@ pub struct ProcessingItem {
     /// Identifier for this processing item.
     #[serde(default)]
     pub id: String,
-    
+
     /// Type of transformation to perform.
     #[serde(rename = "type")]
     pub transformation_type: String,
-    
+
     /// Conditions that determine when this transformation applies.
     #[serde(default)]
     pub rule_conditions: Vec<RuleCondition>,
-    
+
     /// Field name conditions for field-specific transformations.
     #[serde(default)]
     pub field_name_conditions: Vec<FieldCondition>,
-    
+
     /// The transformation configuration (varies by type).
     #[serde(flatten)]
     pub config: TransformationConfig,
@@ -140,7 +145,7 @@ impl ProcessingItem {
         if !self.rule_conditions.is_empty() && !self.check_rule_conditions(rule) {
             return Ok(());
         }
-        
+
         // Apply the transformation based on type
         match self.transformation_type.as_str() {
             "field_name_mapping" => self.apply_field_name_mapping(rule),
@@ -170,33 +175,35 @@ impl ProcessingItem {
             }),
         }
     }
-    
+
     fn check_rule_conditions(&self, rule: &SigmaRule) -> bool {
         self.rule_conditions.iter().all(|cond| cond.matches(rule))
     }
-    
+
     fn check_field_conditions(&self, field_name: &str) -> bool {
         if self.field_name_conditions.is_empty() {
             return true;
         }
-        self.field_name_conditions.iter().any(|cond| cond.matches(field_name))
+        self.field_name_conditions
+            .iter()
+            .any(|cond| cond.matches(field_name))
     }
-    
+
     // ── Field Transformations ────────────────────────────────────────────
-    
+
     fn apply_field_name_mapping(&self, rule: &mut SigmaRule) -> Result<()> {
         if let Some(mapping) = &self.config.mapping {
             // Collect changes first to avoid mutable/immutable borrow conflict
             // (we need to read from search_identifiers while preparing replacements,
             // then write back to it)
             let mut replacements = Vec::new();
-            
+
             for (search_name, search_id) in &rule.detection.search_identifiers {
                 match search_id {
                     SearchIdentifier::Map(items) => {
                         let mut needs_multi_mapping = false;
                         let mut mapped_variants = vec![Vec::new()];
-                        
+
                         for item in items {
                             if let Some(field) = &item.field {
                                 if let Some(new_names) = mapping.get(field) {
@@ -232,30 +239,39 @@ impl ProcessingItem {
                                         variant.push(item.clone());
                                     }
                                 }
-            } else {
+                            } else {
                                 // No field (keyword search): keep original in all variants
                                 for variant in &mut mapped_variants {
                                     variant.push(item.clone());
                                 }
-            }
+                            }
                         }
-                        
+
                         if needs_multi_mapping {
-                            replacements.push((search_name.clone(), SearchIdentifier::MapList(mapped_variants)));
+                            replacements.push((
+                                search_name.clone(),
+                                SearchIdentifier::MapList(mapped_variants),
+                            ));
                         } else {
                             // No multi-mapping occurred, keep as Map
                             // Invariant: mapped_variants always has at least one element (initialized at line 182)
-                            replacements.push((search_name.clone(), SearchIdentifier::Map(
-                                mapped_variants.into_iter().next().expect("mapped_variants should have at least one element")
-                            )));
+                            replacements.push((
+                                search_name.clone(),
+                                SearchIdentifier::Map(
+                                    mapped_variants
+                                        .into_iter()
+                                        .next()
+                                        .expect("mapped_variants should have at least one element"),
+                                ),
+                            ));
                         }
                     }
                     SearchIdentifier::MapList(maps) => {
                         let mut new_maps = Vec::new();
-                        
+
                         for items in maps {
                             let mut map_variants = vec![Vec::new()];
-                            
+
                             for item in items {
                                 if let Some(field) = &item.field {
                                     if let Some(new_names) = mapping.get(field) {
@@ -296,24 +312,27 @@ impl ProcessingItem {
                                         variant.push(item.clone());
                                     }
                                 }
-            }
-                            
+                            }
+
                             new_maps.extend(map_variants);
                         }
-                        
-                        replacements.push((search_name.clone(), SearchIdentifier::MapList(new_maps)));
+
+                        replacements
+                            .push((search_name.clone(), SearchIdentifier::MapList(new_maps)));
                     }
                 }
             }
-            
+
             // Apply replacements
             for (name, new_search_id) in replacements {
-                rule.detection.search_identifiers.insert(name, new_search_id);
+                rule.detection
+                    .search_identifiers
+                    .insert(name, new_search_id);
             }
         }
         Ok(())
     }
-    
+
     fn apply_field_name_prefix(&self, rule: &mut SigmaRule) -> Result<()> {
         if let Some(prefix) = &self.config.prefix {
             for search_id in rule.detection.search_identifiers.values_mut() {
@@ -324,7 +343,7 @@ impl ProcessingItem {
                                 if self.check_field_conditions(field) {
                                     *field = format!("{}{}", prefix, field);
                                 }
-            }
+                            }
                         }
                     }
                     SearchIdentifier::MapList(maps) => {
@@ -335,7 +354,7 @@ impl ProcessingItem {
                                         *field = format!("{}{}", prefix, field);
                                     }
                                 }
-            }
+                            }
                         }
                     }
                 }
@@ -343,7 +362,7 @@ impl ProcessingItem {
         }
         Ok(())
     }
-    
+
     fn apply_field_name_suffix(&self, rule: &mut SigmaRule) -> Result<()> {
         if let Some(suffix) = &self.config.suffix {
             for search_id in rule.detection.search_identifiers.values_mut() {
@@ -354,7 +373,7 @@ impl ProcessingItem {
                                 if self.check_field_conditions(field) {
                                     *field = format!("{}{}", field, suffix);
                                 }
-            }
+                            }
                         }
                     }
                     SearchIdentifier::MapList(maps) => {
@@ -365,7 +384,7 @@ impl ProcessingItem {
                                         *field = format!("{}{}", field, suffix);
                                     }
                                 }
-            }
+                            }
                         }
                     }
                 }
@@ -373,7 +392,7 @@ impl ProcessingItem {
         }
         Ok(())
     }
-    
+
     fn apply_add_field(&self, rule: &mut SigmaRule) -> Result<()> {
         if let (Some(field), Some(value)) = (&self.config.field, &self.config.value) {
             // Add field to all detection items
@@ -392,7 +411,7 @@ impl ProcessingItem {
                                 field: Some(field.clone()),
                                 modifiers: vec![],
                                 values: vec![value.clone()],
-            });
+                            });
                         }
                     }
                 }
@@ -400,7 +419,7 @@ impl ProcessingItem {
         }
         Ok(())
     }
-    
+
     fn apply_remove_field(&self, rule: &mut SigmaRule) -> Result<()> {
         if let Some(field) = &self.config.field {
             for search_id in rule.detection.search_identifiers.values_mut() {
@@ -418,16 +437,17 @@ impl ProcessingItem {
         }
         Ok(())
     }
-    
+
     // ── Value Transformations ────────────────────────────────────────────
-    
+
     fn apply_replace_string(&self, rule: &mut SigmaRule) -> Result<()> {
-        if let (Some(regex_str), Some(replacement)) = (&self.config.regex, &self.config.replacement) {
+        if let (Some(regex_str), Some(replacement)) = (&self.config.regex, &self.config.replacement)
+        {
             let re = regex::Regex::new(regex_str).map_err(|e| Error::InvalidValue {
                 field: "regex".into(),
                 message: e.to_string(),
             })?;
-            
+
             for search_id in rule.detection.search_identifiers.values_mut() {
                 match search_id {
                     SearchIdentifier::Map(items) => {
@@ -436,7 +456,7 @@ impl ProcessingItem {
                                 if self.check_field_conditions(field) {
                                     self.replace_in_values(&mut item.values, &re, replacement);
                                 }
-            }
+                            }
                         }
                     }
                     SearchIdentifier::MapList(maps) => {
@@ -447,7 +467,7 @@ impl ProcessingItem {
                                         self.replace_in_values(&mut item.values, &re, replacement);
                                     }
                                 }
-            }
+                            }
                         }
                     }
                 }
@@ -455,8 +475,13 @@ impl ProcessingItem {
         }
         Ok(())
     }
-    
-    fn replace_in_values(&self, values: &mut Vec<SigmaValue>, re: &regex::Regex, replacement: &str) {
+
+    fn replace_in_values(
+        &self,
+        values: &mut Vec<SigmaValue>,
+        re: &regex::Regex,
+        replacement: &str,
+    ) {
         for value in values {
             if let SigmaValue::String(sigma_str) = value {
                 // For simple strings, apply regex replacement
@@ -471,7 +496,7 @@ impl ProcessingItem {
             }
         }
     }
-    
+
     fn apply_map_string(&self, rule: &mut SigmaRule) -> Result<()> {
         if let Some(mapping) = &self.config.mapping {
             for search_id in rule.detection.search_identifiers.values_mut() {
@@ -482,7 +507,7 @@ impl ProcessingItem {
                                 if self.check_field_conditions(field) {
                                     self.map_string_values(&mut item.values, mapping);
                                 }
-            }
+                            }
                         }
                     }
                     SearchIdentifier::MapList(maps) => {
@@ -493,7 +518,7 @@ impl ProcessingItem {
                                         self.map_string_values(&mut item.values, mapping);
                                     }
                                 }
-            }
+                            }
                         }
                     }
                 }
@@ -501,8 +526,12 @@ impl ProcessingItem {
         }
         Ok(())
     }
-    
-    fn map_string_values(&self, values: &mut Vec<SigmaValue>, mapping: &HashMap<String, Vec<String>>) {
+
+    fn map_string_values(
+        &self,
+        values: &mut Vec<SigmaValue>,
+        mapping: &HashMap<String, Vec<String>>,
+    ) {
         for value in values {
             if let SigmaValue::String(sigma_str) = value {
                 // Only map simple string values
@@ -517,9 +546,9 @@ impl ProcessingItem {
             }
         }
     }
-    
+
     // ── Condition Transformations ────────────────────────────────────────
-    
+
     fn apply_add_condition(&self, rule: &mut SigmaRule) -> Result<()> {
         if let Some(conditions) = &self.config.conditions {
             // Add conditions to all search identifiers
@@ -531,7 +560,7 @@ impl ProcessingItem {
                                 field: Some(field.clone()),
                                 modifiers: vec![],
                                 values: vec![value.clone()],
-            });
+                            });
                         }
                     }
                     SearchIdentifier::MapList(maps) => {
@@ -542,7 +571,7 @@ impl ProcessingItem {
                                     modifiers: vec![],
                                     values: vec![value.clone()],
                                 });
-            }
+                            }
                         }
                     }
                 }
@@ -550,9 +579,9 @@ impl ProcessingItem {
         }
         Ok(())
     }
-    
+
     // ── Additional Transformations ───────────────────────────────────────
-    
+
     fn apply_field_name_prefix_mapping(&self, rule: &mut SigmaRule) -> Result<()> {
         if let Some(mapping) = &self.config.mapping {
             for search_id in rule.detection.search_identifiers.values_mut() {
@@ -566,7 +595,7 @@ impl ProcessingItem {
                         for items in maps {
                             for item in items {
                                 Self::apply_prefix_mapping_to_item(item, mapping);
-            }
+                            }
                         }
                     }
                 }
@@ -574,9 +603,12 @@ impl ProcessingItem {
         }
         Ok(())
     }
-    
+
     /// Helper function to apply prefix mapping to a single detection item
-    fn apply_prefix_mapping_to_item(item: &mut DetectionItem, mapping: &HashMap<String, Vec<String>>) {
+    fn apply_prefix_mapping_to_item(
+        item: &mut DetectionItem,
+        mapping: &HashMap<String, Vec<String>>,
+    ) {
         if let Some(field) = &item.field {
             // Check each prefix in mapping
             for (src_prefix, dest_prefixes) in mapping {
@@ -590,14 +622,14 @@ impl ProcessingItem {
             }
         }
     }
-    
+
     fn apply_set_field(&self, rule: &mut SigmaRule) -> Result<()> {
         if let Some(fields) = &self.config.fields {
             rule.fields = fields.clone();
         }
         Ok(())
     }
-    
+
     fn apply_change_logsource(&self, rule: &mut SigmaRule) -> Result<()> {
         if let Some(category) = &self.config.category {
             rule.logsource.category = Some(category.clone());
@@ -610,7 +642,7 @@ impl ProcessingItem {
         }
         Ok(())
     }
-    
+
     fn apply_drop_detection_item(&self, rule: &mut SigmaRule) -> Result<()> {
         // Drop detection items that match field conditions
         if let Some(field_name) = &self.config.field {
@@ -629,7 +661,7 @@ impl ProcessingItem {
         }
         Ok(())
     }
-    
+
     fn apply_set_state(&self, _rule: &mut SigmaRule) -> Result<()> {
         // State management placeholder - not yet implemented
         // TODO: Full implementation requires a state store in the pipeline context
@@ -638,9 +670,9 @@ impl ProcessingItem {
         // Consider implementing a pipeline context with state storage for full compatibility.
         Ok(())
     }
-    
+
     // ── Placeholder Transformations ──────────────────────────────────────
-    
+
     /// Validate that include and exclude lists are not both specified.
     fn validate_placeholder_config(&self) -> Result<()> {
         if self.config.include.is_some() && self.config.exclude.is_some() {
@@ -651,7 +683,7 @@ impl ProcessingItem {
         }
         Ok(())
     }
-    
+
     /// Check whether a placeholder name should be handled by this transformation
     /// based on the include/exclude configuration.
     /// Include and exclude are mutually exclusive; both being set is prevented
@@ -663,7 +695,7 @@ impl ProcessingItem {
             (None, None) => true,
         }
     }
-    
+
     fn apply_wildcard_placeholders(&self, rule: &mut SigmaRule) -> Result<()> {
         for search_id in rule.detection.search_identifiers.values_mut() {
             match search_id {
@@ -683,7 +715,7 @@ impl ProcessingItem {
         }
         Ok(())
     }
-    
+
     fn replace_placeholders_with_wildcards(&self, values: &mut Vec<SigmaValue>) {
         for value in values {
             if let SigmaValue::String(sigma_str) = value {
@@ -701,8 +733,12 @@ impl ProcessingItem {
             }
         }
     }
-    
-    fn apply_value_placeholders(&self, rule: &mut SigmaRule, vars: &HashMap<String, Vec<String>>) -> Result<()> {
+
+    fn apply_value_placeholders(
+        &self,
+        rule: &mut SigmaRule,
+        vars: &HashMap<String, Vec<String>>,
+    ) -> Result<()> {
         for search_id in rule.detection.search_identifiers.values_mut() {
             match search_id {
                 SearchIdentifier::Map(items) => {
@@ -721,21 +757,21 @@ impl ProcessingItem {
         }
         Ok(())
     }
-    
+
     fn replace_placeholders_with_values(
         &self,
         values: &mut Vec<SigmaValue>,
         vars: &HashMap<String, Vec<String>>,
     ) -> Result<()> {
         let mut new_values = Vec::new();
-        
+
         for value in values.iter() {
             if let SigmaValue::String(sigma_str) = value {
                 // Check if this string contains any handled placeholders
                 let has_handled = sigma_str.parts.iter().any(|p| {
                     matches!(p, SigmaStringPart::Placeholder(name) if self.is_handled_placeholder(name))
                 });
-                
+
                 if has_handled {
                     // Expand placeholders: for each placeholder, substitute with each
                     // value from vars, producing multiple SigmaStrings
@@ -750,11 +786,11 @@ impl ProcessingItem {
                 new_values.push(value.clone());
             }
         }
-        
+
         *values = new_values;
         Ok(())
     }
-    
+
     /// Expand a SigmaString that contains placeholders into multiple SigmaStrings
     /// by substituting placeholder values from vars.
     fn expand_value_placeholder(
@@ -764,22 +800,28 @@ impl ProcessingItem {
     ) -> Result<Vec<SigmaString>> {
         // Start with a single empty variant
         let mut variants: Vec<Vec<SigmaStringPart>> = vec![vec![]];
-        
+
         for part in &sigma_str.parts {
             match part {
                 SigmaStringPart::Placeholder(name) if self.is_handled_placeholder(name) => {
                     let replacement_values = vars.get(name).ok_or_else(|| Error::InvalidValue {
                         field: "vars".into(),
-                        message: format!("Placeholder replacement variable '{}' does not exist", name),
+                        message: format!(
+                            "Placeholder replacement variable '{}' does not exist",
+                            name
+                        ),
                     })?;
-                    
+
                     if replacement_values.is_empty() {
                         return Err(Error::InvalidValue {
                             field: "vars".into(),
-                            message: format!("Placeholder replacement variable '{}' is empty", name),
+                            message: format!(
+                                "Placeholder replacement variable '{}' is empty",
+                                name
+                            ),
                         });
                     }
-                    
+
                     // Multiply variants by the number of replacement values
                     let mut new_variants = Vec::new();
                     for variant in &variants {
@@ -799,7 +841,7 @@ impl ProcessingItem {
                 }
             }
         }
-        
+
         Ok(variants
             .into_iter()
             .map(|parts| SigmaString { parts })
@@ -816,53 +858,53 @@ pub struct TransformationConfig {
     // Field mapping
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mapping: Option<HashMap<String, Vec<String>>>,
-    
+
     // Field prefix/suffix
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prefix: Option<String>,
-    
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suffix: Option<String>,
-    
+
     // Add/set field(s)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub field: Option<String>,
-    
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fields: Option<Vec<String>>,
-    
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<SigmaValue>,
-    
+
     // Replace string / regex
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub regex: Option<String>,
-    
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replacement: Option<String>,
-    
+
     // Add condition
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conditions: Option<HashMap<String, SigmaValue>>,
-    
+
     // Change logsource
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
-    
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub product: Option<String>,
-    
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service: Option<String>,
-    
+
     // State management
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
-    
+
     // Placeholder include/exclude
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub include: Option<Vec<String>>,
-    
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exclude: Option<Vec<String>>,
 }
@@ -876,11 +918,11 @@ pub enum RuleCondition {
     /// Match rules by log source category.
     #[serde(rename = "logsource_category")]
     LogSourceCategory { category: String },
-    
+
     /// Match rules by log source product.
     #[serde(rename = "logsource_product")]
     LogSourceProduct { product: String },
-    
+
     /// Match rules by log source service.
     #[serde(rename = "logsource_service")]
     LogSourceService { service: String },
@@ -909,7 +951,7 @@ pub enum FieldCondition {
     /// Include only specific fields.
     #[serde(rename = "include_fields")]
     IncludeFields { fields: Vec<String> },
-    
+
     /// Exclude specific fields.
     #[serde(rename = "exclude_fields")]
     ExcludeFields { fields: Vec<String> },
@@ -929,8 +971,8 @@ impl FieldCondition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Detection, ConditionExpression, LogSource};
-    
+    use crate::types::{ConditionExpression, Detection, LogSource};
+
     fn create_test_rule() -> SigmaRule {
         let mut search_identifiers = HashMap::new();
         search_identifiers.insert(
@@ -948,7 +990,7 @@ mod tests {
                 },
             ]),
         );
-        
+
         SigmaRule {
             title: "Test Rule".to_string(),
             id: None,
@@ -979,7 +1021,7 @@ mod tests {
             custom: HashMap::new(),
         }
     }
-    
+
     #[test]
     fn test_field_name_mapping_multiple() {
         let yaml = r#"
@@ -992,23 +1034,23 @@ transformations:
         - event_id
         - evtid
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         pipeline.apply(&mut rule).unwrap();
-        
+
         // Check that EventID was mapped to multiple fields (OR-ed)
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::MapList(maps) = selection {
             // Should have 2 variants for the EventID field (event_id and evtid)
             // Each variant should have BOTH the mapped EventID field AND CommandLine
             assert_eq!(maps.len(), 2);
-            
+
             // First variant: event_id + CommandLine
             assert_eq!(maps[0].len(), 2);
             assert_eq!(maps[0][0].field.as_deref(), Some("event_id"));
             assert_eq!(maps[0][1].field.as_deref(), Some("CommandLine"));
-            
+
             // Second variant: evtid + CommandLine
             assert_eq!(maps[1].len(), 2);
             assert_eq!(maps[1][0].field.as_deref(), Some("evtid"));
@@ -1017,7 +1059,7 @@ transformations:
             panic!("Expected MapList for multi-field mapping");
         }
     }
-    
+
     #[test]
     fn test_field_name_mapping_single() {
         let yaml = r#"
@@ -1029,11 +1071,11 @@ transformations:
       EventID:
         - event_id
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         pipeline.apply(&mut rule).unwrap();
-        
+
         // Check that EventID was mapped to event_id (1:1 mapping)
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
@@ -1043,7 +1085,7 @@ transformations:
             panic!("Expected Map for single-field mapping");
         }
     }
-    
+
     #[test]
     fn test_field_name_prefix() {
         let yaml = r#"
@@ -1053,11 +1095,11 @@ transformations:
     type: field_name_prefix
     prefix: "win."
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             assert_eq!(items[0].field.as_deref(), Some("win.EventID"));
@@ -1066,7 +1108,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_field_name_prefix_with_conditions() {
         let yaml = r#"
@@ -1080,11 +1122,11 @@ transformations:
         fields:
           - EventID
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             assert_eq!(items[0].field.as_deref(), Some("win.EventID"));
@@ -1093,7 +1135,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_replace_string() {
         let yaml = r#"
@@ -1108,11 +1150,11 @@ transformations:
         fields:
           - CommandLine
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             if let SigmaValue::String(s) = &items[1].values[0] {
@@ -1124,7 +1166,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_logsource_condition() {
         let yaml = r#"
@@ -1137,11 +1179,11 @@ transformations:
       - type: logsource_category
         category: process_creation
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             assert_eq!(items[0].field.as_deref(), Some("proc.EventID"));
@@ -1149,7 +1191,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_add_field() {
         let yaml = r#"
@@ -1160,20 +1202,22 @@ transformations:
     field: index
     value: "windows"
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         let initial_count = match &rule.detection.search_identifiers["selection"] {
             SearchIdentifier::Map(items) => items.len(),
             _ => panic!("Expected Map"),
         };
-        
+
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             assert_eq!(items.len(), initial_count + 1);
-            let index_field = items.iter().find(|item| item.field.as_deref() == Some("index"));
+            let index_field = items
+                .iter()
+                .find(|item| item.field.as_deref() == Some("index"));
             assert!(index_field.is_some());
             if let Some(field) = index_field {
                 if let SigmaValue::String(s) = &field.values[0] {
@@ -1186,7 +1230,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_remove_field() {
         let yaml = r#"
@@ -1196,11 +1240,11 @@ transformations:
     type: remove_field
     field: CommandLine
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             assert_eq!(items.len(), 1);
@@ -1209,7 +1253,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_field_name_suffix() {
         let yaml = r#"
@@ -1219,11 +1263,11 @@ transformations:
     type: field_name_suffix
     suffix: ".keyword"
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             assert_eq!(items[0].field.as_deref(), Some("EventID.keyword"));
@@ -1232,7 +1276,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_map_string() {
         let yaml = r#"
@@ -1248,11 +1292,11 @@ transformations:
         fields:
           - CommandLine
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             if let SigmaValue::String(s) = &items[1].values[0] {
@@ -1264,7 +1308,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_multiple_transformations() {
         let yaml = r#"
@@ -1279,11 +1323,11 @@ transformations:
     type: field_name_prefix
     prefix: "win."
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             // First transformation: EventID -> event_id
@@ -1294,7 +1338,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_multiple_pipelines() {
         let yaml1 = r#"
@@ -1307,7 +1351,7 @@ transformations:
       EventID:
         - event_id
 "#;
-        
+
         let yaml2 = r#"
 name: Pipeline 2
 priority: 20
@@ -1316,15 +1360,15 @@ transformations:
     type: field_name_prefix
     prefix: "win."
 "#;
-        
+
         let mut pipelines = vec![
             ProcessingPipeline::from_yaml(yaml1).unwrap(),
             ProcessingPipeline::from_yaml(yaml2).unwrap(),
         ];
-        
+
         let mut rule = create_test_rule();
         ProcessingPipeline::apply_multiple(&mut pipelines, &mut rule).unwrap();
-        
+
         // Pipeline 1 (priority 10) should run first, then Pipeline 2 (priority 20)
         // So: EventID -> event_id -> win.event_id
         let selection = &rule.detection.search_identifiers["selection"];
@@ -1334,7 +1378,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_exclude_fields_condition() {
         let yaml = r#"
@@ -1348,11 +1392,11 @@ transformations:
         fields:
           - CommandLine
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             assert_eq!(items[0].field.as_deref(), Some("win.EventID"));
@@ -1361,7 +1405,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_add_condition() {
         let yaml = r#"
@@ -1373,30 +1417,34 @@ transformations:
       index: "windows"
       source: "sysmon"
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         let initial_count = match &rule.detection.search_identifiers["selection"] {
             SearchIdentifier::Map(items) => items.len(),
             _ => panic!("Expected Map"),
         };
-        
+
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             assert_eq!(items.len(), initial_count + 2);
-            
-            let has_index = items.iter().any(|item| item.field.as_deref() == Some("index"));
-            let has_source = items.iter().any(|item| item.field.as_deref() == Some("source"));
-            
+
+            let has_index = items
+                .iter()
+                .any(|item| item.field.as_deref() == Some("index"));
+            let has_source = items
+                .iter()
+                .any(|item| item.field.as_deref() == Some("source"));
+
             assert!(has_index);
             assert!(has_source);
         } else {
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_rule_condition_not_matching() {
         let yaml = r#"
@@ -1409,11 +1457,11 @@ transformations:
       - type: logsource_product
         product: linux
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule(); // Has product: windows
         pipeline.apply(&mut rule).unwrap();
-        
+
         // Transformation should not be applied
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
@@ -1422,7 +1470,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_field_name_prefix_mapping() {
         let yaml = r#"
@@ -1436,17 +1484,22 @@ transformations:
       Event:
         - event.
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
-        
+
         // Manually add a field with win. prefix
-        if let SearchIdentifier::Map(items) = &mut rule.detection.search_identifiers.get_mut("selection").unwrap() {
+        if let SearchIdentifier::Map(items) = &mut rule
+            .detection
+            .search_identifiers
+            .get_mut("selection")
+            .unwrap()
+        {
             items[0].field = Some("win.EventID".to_string());
         }
-        
+
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             assert_eq!(items[0].field.as_deref(), Some("windows.EventID"));
@@ -1454,7 +1507,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_set_field() {
         let yaml = r#"
@@ -1466,14 +1519,14 @@ transformations:
       - ComputerName
       - UserName
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         pipeline.apply(&mut rule).unwrap();
-        
+
         assert_eq!(rule.fields, vec!["ComputerName", "UserName"]);
     }
-    
+
     #[test]
     fn test_change_logsource() {
         let yaml = r#"
@@ -1484,15 +1537,18 @@ transformations:
     product: linux
     category: network_connection
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         pipeline.apply(&mut rule).unwrap();
-        
+
         assert_eq!(rule.logsource.product.as_deref(), Some("linux"));
-        assert_eq!(rule.logsource.category.as_deref(), Some("network_connection"));
+        assert_eq!(
+            rule.logsource.category.as_deref(),
+            Some("network_connection")
+        );
     }
-    
+
     #[test]
     fn test_drop_detection_item() {
         let yaml = r#"
@@ -1502,11 +1558,11 @@ transformations:
     type: drop_detection_item
     field: CommandLine
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule();
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             assert_eq!(items.len(), 1);
@@ -1515,7 +1571,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     fn create_test_rule_with_placeholders() -> SigmaRule {
         let mut search_identifiers = HashMap::new();
         search_identifiers.insert(
@@ -1535,14 +1591,12 @@ transformations:
                     field: Some("User".to_string()),
                     modifiers: vec![],
                     values: vec![SigmaValue::String(SigmaString {
-                        parts: vec![
-                            SigmaStringPart::Placeholder("Admins".to_string()),
-                        ],
+                        parts: vec![SigmaStringPart::Placeholder("Admins".to_string())],
                     })],
                 },
             ]),
         );
-        
+
         SigmaRule {
             title: "Placeholder Test Rule".to_string(),
             id: None,
@@ -1573,7 +1627,7 @@ transformations:
             custom: HashMap::new(),
         }
     }
-    
+
     #[test]
     fn test_wildcard_placeholders() {
         let yaml = r#"
@@ -1582,22 +1636,25 @@ transformations:
   - id: wildcard_all
     type: wildcard_placeholders
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule_with_placeholders();
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             // Image: %SystemRoot%\cmd.exe -> *\cmd.exe
             if let SigmaValue::String(s) = &items[0].values[0] {
                 assert_eq!(s.parts.len(), 2);
                 assert_eq!(s.parts[0], SigmaStringPart::WildcardMulti);
-                assert_eq!(s.parts[1], SigmaStringPart::Literal("\\cmd.exe".to_string()));
+                assert_eq!(
+                    s.parts[1],
+                    SigmaStringPart::Literal("\\cmd.exe".to_string())
+                );
             } else {
                 panic!("Expected String value");
             }
-            
+
             // User: %Admins% -> *
             if let SigmaValue::String(s) = &items[1].values[0] {
                 assert_eq!(s.parts.len(), 1);
@@ -1609,7 +1666,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_wildcard_placeholders_with_include() {
         let yaml = r#"
@@ -1620,11 +1677,11 @@ transformations:
     include:
       - SystemRoot
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule_with_placeholders();
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             // Image: %SystemRoot%\cmd.exe -> *\cmd.exe (handled)
@@ -1633,10 +1690,13 @@ transformations:
             } else {
                 panic!("Expected String value");
             }
-            
+
             // User: %Admins% -> unchanged (not in include list)
             if let SigmaValue::String(s) = &items[1].values[0] {
-                assert_eq!(s.parts[0], SigmaStringPart::Placeholder("Admins".to_string()));
+                assert_eq!(
+                    s.parts[0],
+                    SigmaStringPart::Placeholder("Admins".to_string())
+                );
             } else {
                 panic!("Expected String value");
             }
@@ -1644,7 +1704,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_wildcard_placeholders_with_exclude() {
         let yaml = r#"
@@ -1655,11 +1715,11 @@ transformations:
     exclude:
       - Admins
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule_with_placeholders();
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             // Image: %SystemRoot%\cmd.exe -> *\cmd.exe (handled, not excluded)
@@ -1668,10 +1728,13 @@ transformations:
             } else {
                 panic!("Expected String value");
             }
-            
+
             // User: %Admins% -> unchanged (excluded)
             if let SigmaValue::String(s) = &items[1].values[0] {
-                assert_eq!(s.parts[0], SigmaStringPart::Placeholder("Admins".to_string()));
+                assert_eq!(
+                    s.parts[0],
+                    SigmaStringPart::Placeholder("Admins".to_string())
+                );
             } else {
                 panic!("Expected String value");
             }
@@ -1679,7 +1742,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_value_placeholders() {
         let yaml = r#"
@@ -1695,11 +1758,11 @@ transformations:
   - id: replace_placeholders
     type: value_placeholders
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule_with_placeholders();
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             // Image: %SystemRoot%\cmd.exe -> 2 values (C:\Windows\cmd.exe, D:\Windows\cmd.exe)
@@ -1714,7 +1777,7 @@ transformations:
             } else {
                 panic!("Expected String value");
             }
-            
+
             // User: %Admins% -> 2 values (Administrator, admin)
             assert_eq!(items[1].values.len(), 2);
             if let SigmaValue::String(s) = &items[1].values[0] {
@@ -1731,7 +1794,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_value_placeholders_with_include() {
         let yaml = r#"
@@ -1751,11 +1814,11 @@ transformations:
     include:
       - SystemRoot
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule_with_placeholders();
         pipeline.apply(&mut rule).unwrap();
-        
+
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
             // Image: %SystemRoot%\cmd.exe -> 3 values (included placeholder expanded)
@@ -1775,12 +1838,15 @@ transformations:
             } else {
                 panic!("Expected String value");
             }
-            
+
             // User: %Admins% -> unchanged (not in include list, stays as placeholder)
             assert_eq!(items[1].values.len(), 1);
             if let SigmaValue::String(s) = &items[1].values[0] {
                 assert_eq!(s.parts.len(), 1);
-                assert_eq!(s.parts[0], SigmaStringPart::Placeholder("Admins".to_string()));
+                assert_eq!(
+                    s.parts[0],
+                    SigmaStringPart::Placeholder("Admins".to_string())
+                );
             } else {
                 panic!("Expected String value");
             }
@@ -1788,7 +1854,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_value_placeholders_missing_var() {
         let yaml = r#"
@@ -1798,7 +1864,7 @@ transformations:
   - id: replace_placeholders
     type: value_placeholders
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule_with_placeholders();
         let result = pipeline.apply(&mut rule);
@@ -1806,7 +1872,7 @@ transformations:
         let err = result.unwrap_err();
         assert!(err.to_string().contains("does not exist"));
     }
-    
+
     #[test]
     fn test_value_placeholders_no_placeholders_in_rule() {
         let yaml = r#"
@@ -1818,11 +1884,11 @@ transformations:
   - id: replace_placeholders
     type: value_placeholders
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule(); // No placeholders
         pipeline.apply(&mut rule).unwrap();
-        
+
         // Rule should be unchanged
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
@@ -1832,7 +1898,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_wildcard_placeholders_no_placeholders_in_rule() {
         let yaml = r#"
@@ -1841,11 +1907,11 @@ transformations:
   - id: wildcard_all
     type: wildcard_placeholders
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule(); // No placeholders
         pipeline.apply(&mut rule).unwrap();
-        
+
         // Rule should be unchanged
         let selection = &rule.detection.search_identifiers["selection"];
         if let SearchIdentifier::Map(items) = selection {
@@ -1855,7 +1921,7 @@ transformations:
             panic!("Expected Map");
         }
     }
-    
+
     #[test]
     fn test_placeholder_include_exclude_mutually_exclusive() {
         let yaml = r#"
@@ -1868,7 +1934,7 @@ transformations:
     exclude:
       - Admins
 "#;
-        
+
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule_with_placeholders();
         let result = pipeline.apply(&mut rule);
@@ -1876,7 +1942,7 @@ transformations:
         let err = result.unwrap_err();
         assert!(err.to_string().contains("exclusively"));
     }
-    
+
     #[test]
     fn test_unknown_transformation_type() {
         let yaml = r#"
@@ -1910,9 +1976,17 @@ transformations:
         );
         SigmaRule {
             title: "MapList Rule".to_string(),
-            id: None, name: None, related: vec![], taxonomy: None,
-            status: None, description: None, license: None, references: vec![],
-            author: None, date: None, modified: None,
+            id: None,
+            name: None,
+            related: vec![],
+            taxonomy: None,
+            status: None,
+            description: None,
+            license: None,
+            references: vec![],
+            author: None,
+            date: None,
+            modified: None,
             logsource: LogSource {
                 category: Some("process_creation".to_string()),
                 product: Some("windows".to_string()),
@@ -1922,8 +1996,12 @@ transformations:
                 search_identifiers,
                 conditions: vec![ConditionExpression::Identifier("selection".to_string())],
             },
-            fields: vec![], falsepositives: vec![], level: None,
-            tags: vec![], scope: vec![], custom: HashMap::new(),
+            fields: vec![],
+            falsepositives: vec![],
+            level: None,
+            tags: vec![],
+            scope: vec![],
+            custom: HashMap::new(),
         }
     }
 
@@ -1996,19 +2074,32 @@ transformations:
         );
         let mut rule = SigmaRule {
             title: "Test".to_string(),
-            id: None, name: None, related: vec![], taxonomy: None,
-            status: None, description: None, license: None, references: vec![],
-            author: None, date: None, modified: None,
+            id: None,
+            name: None,
+            related: vec![],
+            taxonomy: None,
+            status: None,
+            description: None,
+            license: None,
+            references: vec![],
+            author: None,
+            date: None,
+            modified: None,
             logsource: LogSource {
                 category: Some("test".to_string()),
-                product: None, service: None,
+                product: None,
+                service: None,
             },
             detection: Detection {
                 search_identifiers,
                 conditions: vec![ConditionExpression::Identifier("selection".to_string())],
             },
-            fields: vec![], falsepositives: vec![], level: None,
-            tags: vec![], scope: vec![], custom: HashMap::new(),
+            fields: vec![],
+            falsepositives: vec![],
+            level: None,
+            tags: vec![],
+            scope: vec![],
+            custom: HashMap::new(),
         };
         let yaml = r#"
 name: Test
@@ -2038,31 +2129,40 @@ transformations:
         let mut search_identifiers = HashMap::new();
         search_identifiers.insert(
             "selection".to_string(),
-            SearchIdentifier::MapList(vec![
-                vec![
-                    DetectionItem {
-                        field: None,
-                        modifiers: vec![],
-                        values: vec![SigmaValue::String(SigmaString::from_literal("keyword"))],
-                    },
-                ],
-            ]),
+            SearchIdentifier::MapList(vec![vec![DetectionItem {
+                field: None,
+                modifiers: vec![],
+                values: vec![SigmaValue::String(SigmaString::from_literal("keyword"))],
+            }]]),
         );
         SigmaRule {
             title: "Test".to_string(),
-            id: None, name: None, related: vec![], taxonomy: None,
-            status: None, description: None, license: None, references: vec![],
-            author: None, date: None, modified: None,
+            id: None,
+            name: None,
+            related: vec![],
+            taxonomy: None,
+            status: None,
+            description: None,
+            license: None,
+            references: vec![],
+            author: None,
+            date: None,
+            modified: None,
             logsource: LogSource {
                 category: Some("test".to_string()),
-                product: None, service: None,
+                product: None,
+                service: None,
             },
             detection: Detection {
                 search_identifiers,
                 conditions: vec![ConditionExpression::Identifier("selection".to_string())],
             },
-            fields: vec![], falsepositives: vec![], level: None,
-            tags: vec![], scope: vec![], custom: HashMap::new(),
+            fields: vec![],
+            falsepositives: vec![],
+            level: None,
+            tags: vec![],
+            scope: vec![],
+            custom: HashMap::new(),
         }
     }
 
@@ -2164,7 +2264,11 @@ transformations:
         let mut rule = create_test_rule_with_maplist();
         pipeline.apply(&mut rule).unwrap();
         if let SearchIdentifier::MapList(maps) = &rule.detection.search_identifiers["selection"] {
-            assert!(maps[0].iter().all(|i| i.field.as_deref() != Some("EventID")));
+            assert!(
+                maps[0]
+                    .iter()
+                    .all(|i| i.field.as_deref() != Some("EventID"))
+            );
         } else {
             panic!("Expected MapList");
         }
@@ -2337,12 +2441,33 @@ transformations:
             }]]),
         );
         let mut rule = SigmaRule {
-            title: "T".into(), id: None, name: None, related: vec![], taxonomy: None,
-            status: None, description: None, license: None, references: vec![],
-            author: None, date: None, modified: None,
-            logsource: LogSource { category: None, product: None, service: None },
-            detection: Detection { search_identifiers, conditions: vec![ConditionExpression::Identifier("sel".into())] },
-            fields: vec![], falsepositives: vec![], level: None, tags: vec![], scope: vec![], custom: HashMap::new(),
+            title: "T".into(),
+            id: None,
+            name: None,
+            related: vec![],
+            taxonomy: None,
+            status: None,
+            description: None,
+            license: None,
+            references: vec![],
+            author: None,
+            date: None,
+            modified: None,
+            logsource: LogSource {
+                category: None,
+                product: None,
+                service: None,
+            },
+            detection: Detection {
+                search_identifiers,
+                conditions: vec![ConditionExpression::Identifier("sel".into())],
+            },
+            fields: vec![],
+            falsepositives: vec![],
+            level: None,
+            tags: vec![],
+            scope: vec![],
+            custom: HashMap::new(),
         };
         pipeline.apply(&mut rule).unwrap();
         if let SearchIdentifier::MapList(maps) = &rule.detection.search_identifiers["sel"] {
@@ -2376,12 +2501,33 @@ transformations:
             }]]),
         );
         let mut rule = SigmaRule {
-            title: "T".into(), id: None, name: None, related: vec![], taxonomy: None,
-            status: None, description: None, license: None, references: vec![],
-            author: None, date: None, modified: None,
-            logsource: LogSource { category: None, product: None, service: None },
-            detection: Detection { search_identifiers, conditions: vec![ConditionExpression::Identifier("sel".into())] },
-            fields: vec![], falsepositives: vec![], level: None, tags: vec![], scope: vec![], custom: HashMap::new(),
+            title: "T".into(),
+            id: None,
+            name: None,
+            related: vec![],
+            taxonomy: None,
+            status: None,
+            description: None,
+            license: None,
+            references: vec![],
+            author: None,
+            date: None,
+            modified: None,
+            logsource: LogSource {
+                category: None,
+                product: None,
+                service: None,
+            },
+            detection: Detection {
+                search_identifiers,
+                conditions: vec![ConditionExpression::Identifier("sel".into())],
+            },
+            fields: vec![],
+            falsepositives: vec![],
+            level: None,
+            tags: vec![],
+            scope: vec![],
+            custom: HashMap::new(),
         };
         pipeline.apply(&mut rule).unwrap();
         if let SearchIdentifier::MapList(maps) = &rule.detection.search_identifiers["sel"] {
@@ -2404,7 +2550,12 @@ transformations:
         let pipeline = ProcessingPipeline::from_yaml(yaml).unwrap();
         let mut rule = create_test_rule_with_placeholders();
         // Replace Admins placeholder with Empty
-        if let SearchIdentifier::Map(items) = rule.detection.search_identifiers.get_mut("selection").unwrap() {
+        if let SearchIdentifier::Map(items) = rule
+            .detection
+            .search_identifiers
+            .get_mut("selection")
+            .unwrap()
+        {
             items[1].values = vec![SigmaValue::String(SigmaString {
                 parts: vec![SigmaStringPart::Placeholder("Empty".to_string())],
             })];
@@ -2433,5 +2584,4 @@ transformations:
             assert_eq!(maps[0][0].field.as_deref(), Some("s.EventID"));
         }
     }
-    
 }

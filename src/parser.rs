@@ -68,9 +68,9 @@ impl SigmaCollection {
 // ─── Document dispatch ───────────────────────────────────────────────────────
 
 fn parse_document(value: Value) -> Result<SigmaDocument, Error> {
-    let map = value.as_mapping().ok_or_else(|| {
-        Error::InvalidDocument("Expected a YAML mapping at document root".into())
-    })?;
+    let map = value
+        .as_mapping()
+        .ok_or_else(|| Error::InvalidDocument("Expected a YAML mapping at document root".into()))?;
 
     if map.contains_key(&Value::String("correlation".into())) {
         Ok(SigmaDocument::Correlation(parse_correlation_rule(map)?))
@@ -134,7 +134,7 @@ fn get_date(map: &Mapping, key: &str) -> Result<Option<NaiveDate>, Error> {
                 field: key.into(),
                 message: "Date must be a string or number".into(),
             })?;
-            
+
             NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
                 .map(Some)
                 .map_err(|e| Error::InvalidValue {
@@ -376,7 +376,8 @@ pub fn expand_placeholders(sigma_string: &SigmaString) -> SigmaString {
                         if found_closing && !placeholder.is_empty() {
                             // Valid placeholder found - flush current literal and add placeholder
                             if !current_literal.is_empty() {
-                                expanded_parts.push(SigmaStringPart::Literal(current_literal.clone()));
+                                expanded_parts
+                                    .push(SigmaStringPart::Literal(current_literal.clone()));
                                 current_literal.clear();
                             }
                             expanded_parts.push(SigmaStringPart::Placeholder(placeholder));
@@ -477,19 +478,20 @@ fn parse_detection_map(map: &Mapping) -> Result<Vec<DetectionItem>, Error> {
             .ok_or_else(|| Error::InvalidDetection(format!("Map key must be a string: {key:?}")))?;
         let (field, modifiers) = parse_field_and_modifiers(key_str)?;
         let mut values = yaml_to_sigma_values(value)?;
-        
+
         // Apply expand modifier if present to convert %name% patterns into placeholders
         if modifiers.contains(&Modifier::Expand) {
-            values = values.into_iter().map(|v| {
-                match v {
+            values = values
+                .into_iter()
+                .map(|v| match v {
                     SigmaValue::String(sigma_string) => {
                         SigmaValue::String(expand_placeholders(&sigma_string))
                     }
                     other => other,
-                }
-            }).collect();
+                })
+                .collect();
         }
-        
+
         items.push(DetectionItem {
             field,
             modifiers,
@@ -515,8 +517,10 @@ fn parse_search_identifier(value: &Value) -> Result<SearchIdentifier, Error> {
 
             if all_scalars {
                 // Keyword search: list of values, OR-connected by default
-                let values: Vec<SigmaValue> =
-                    seq.iter().map(yaml_to_sigma_value).collect::<Result<_, _>>()?;
+                let values: Vec<SigmaValue> = seq
+                    .iter()
+                    .map(yaml_to_sigma_value)
+                    .collect::<Result<_, _>>()?;
                 Ok(SearchIdentifier::Map(vec![DetectionItem {
                     field: None,
                     modifiers: vec![],
@@ -546,9 +550,9 @@ fn parse_search_identifier(value: &Value) -> Result<SearchIdentifier, Error> {
 }
 
 fn parse_detection(detection_value: &Value) -> Result<Detection, Error> {
-    let map = detection_value.as_mapping().ok_or_else(|| {
-        Error::InvalidDetection("Detection section must be a mapping".into())
-    })?;
+    let map = detection_value
+        .as_mapping()
+        .ok_or_else(|| Error::InvalidDetection("Detection section must be a mapping".into()))?;
 
     // Extract and parse condition(s)
     let condition_value = map
@@ -584,9 +588,9 @@ fn parse_detection(detection_value: &Value) -> Result<Detection, Error> {
     // Parse all search identifiers (every key except "condition")
     let mut search_identifiers = HashMap::new();
     for (key, value) in map {
-        let key_str = key
-            .as_str()
-            .ok_or_else(|| Error::InvalidDetection(format!("Detection key must be a string: {key:?}")))?;
+        let key_str = key.as_str().ok_or_else(|| {
+            Error::InvalidDetection(format!("Detection key must be a string: {key:?}"))
+        })?;
         if key_str == "condition" {
             continue;
         }
@@ -612,10 +616,10 @@ fn parse_related(value: &Value) -> Result<Vec<RelatedEntry>, Error> {
                 field: "related".into(),
                 message: "Each entry must be a mapping".into(),
             })?;
-            let id = get_string(map, "id")
-                .ok_or_else(|| Error::MissingField("related[].id".into()))?;
-            let type_str = get_str(map, "type")
-                .ok_or_else(|| Error::MissingField("related[].type".into()))?;
+            let id =
+                get_string(map, "id").ok_or_else(|| Error::MissingField("related[].id".into()))?;
+            let type_str =
+                get_str(map, "type").ok_or_else(|| Error::MissingField("related[].type".into()))?;
             Ok(RelatedEntry {
                 id,
                 relation_type: parse_relation_type(type_str)?,
@@ -643,8 +647,7 @@ fn parse_logsource(value: &Value) -> Result<LogSource, Error> {
 // ─── Detection rule ──────────────────────────────────────────────────────────
 
 fn parse_detection_rule(map: &Mapping) -> Result<SigmaRule, Error> {
-    let title = get_string(map, "title")
-        .ok_or_else(|| Error::MissingField("title".into()))?;
+    let title = get_string(map, "title").ok_or_else(|| Error::MissingField("title".into()))?;
 
     let detection = parse_detection(
         map.get("detection")
@@ -731,10 +734,12 @@ fn parse_aliases(value: &Value) -> Result<HashMap<String, HashMap<String, String
             })?
             .to_string();
 
-        let rule_map = alias_value.as_mapping().ok_or_else(|| Error::InvalidValue {
-            field: "aliases".into(),
-            message: format!("Alias '{alias_name}' must map to a mapping"),
-        })?;
+        let rule_map = alias_value
+            .as_mapping()
+            .ok_or_else(|| Error::InvalidValue {
+                field: "aliases".into(),
+                message: format!("Alias '{alias_name}' must map to a mapping"),
+            })?;
 
         let mut field_map = HashMap::new();
         for (rule_key, field_value) in rule_map {
@@ -790,8 +795,8 @@ fn parse_correlation_section(value: &Value) -> Result<Correlation, Error> {
         message: "Must be a mapping".into(),
     })?;
 
-    let type_str = get_str(map, "type")
-        .ok_or_else(|| Error::MissingField("correlation.type".into()))?;
+    let type_str =
+        get_str(map, "type").ok_or_else(|| Error::MissingField("correlation.type".into()))?;
     let correlation_type = parse_correlation_type(type_str)?;
 
     let rules = get_string_list(map, "rules");
@@ -821,7 +826,10 @@ fn parse_correlation_section(value: &Value) -> Result<Correlation, Error> {
             // expression uses pattern-based scopes (e.g. `1 of sel*`) or `them`, we
             // cannot reliably compare; require explicit identifiers in that case.
             use crate::types::ConditionExpression;
-            fn collect_ids(expr: &ConditionExpression, out: &mut HashSet<String>) -> Result<(), Error> {
+            fn collect_ids(
+                expr: &ConditionExpression,
+                out: &mut HashSet<String>,
+            ) -> Result<(), Error> {
                 match expr {
                     ConditionExpression::And(l, r) | ConditionExpression::Or(l, r) => {
                         collect_ids(l, out)?;
@@ -871,8 +879,7 @@ fn parse_correlation_section(value: &Value) -> Result<Correlation, Error> {
 }
 
 fn parse_correlation_rule(map: &Mapping) -> Result<SigmaCorrelationRule, Error> {
-    let title = get_string(map, "title")
-        .ok_or_else(|| Error::MissingField("title".into()))?;
+    let title = get_string(map, "title").ok_or_else(|| Error::MissingField("title".into()))?;
 
     let correlation = parse_correlation_section(
         map.get("correlation")
@@ -938,13 +945,16 @@ fn collect_custom_fields(map: &Mapping, known: &[&str]) -> HashMap<String, serde
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{SigmaStringPart};
+    use crate::types::SigmaStringPart;
 
     #[test]
     fn test_parse_sigma_string_plain() {
         let result = parse_sigma_string("hello world");
         assert_eq!(result.parts.len(), 1);
-        assert_eq!(result.parts[0], SigmaStringPart::Literal("hello world".to_string()));
+        assert_eq!(
+            result.parts[0],
+            SigmaStringPart::Literal("hello world".to_string())
+        );
     }
 
     #[test]
@@ -952,13 +962,22 @@ mod tests {
         let result = parse_sigma_string("*.exe");
         assert_eq!(result.parts.len(), 2);
         assert_eq!(result.parts[0], SigmaStringPart::WildcardMulti);
-        assert_eq!(result.parts[1], SigmaStringPart::Literal(".exe".to_string()));
+        assert_eq!(
+            result.parts[1],
+            SigmaStringPart::Literal(".exe".to_string())
+        );
 
         let result = parse_sigma_string("file?.txt");
         assert_eq!(result.parts.len(), 3);
-        assert_eq!(result.parts[0], SigmaStringPart::Literal("file".to_string()));
+        assert_eq!(
+            result.parts[0],
+            SigmaStringPart::Literal("file".to_string())
+        );
         assert_eq!(result.parts[1], SigmaStringPart::WildcardSingle);
-        assert_eq!(result.parts[2], SigmaStringPart::Literal(".txt".to_string()));
+        assert_eq!(
+            result.parts[2],
+            SigmaStringPart::Literal(".txt".to_string())
+        );
     }
 
     #[test]
@@ -966,16 +985,28 @@ mod tests {
         // Placeholders are NOT parsed in parse_sigma_string - they remain as literals
         let result = parse_sigma_string("%SystemRoot%/System32/*.exe");
         assert_eq!(result.parts.len(), 3);
-        assert_eq!(result.parts[0], SigmaStringPart::Literal("%SystemRoot%/System32/".to_string()));
+        assert_eq!(
+            result.parts[0],
+            SigmaStringPart::Literal("%SystemRoot%/System32/".to_string())
+        );
         assert_eq!(result.parts[1], SigmaStringPart::WildcardMulti);
-        assert_eq!(result.parts[2], SigmaStringPart::Literal(".exe".to_string()));
+        assert_eq!(
+            result.parts[2],
+            SigmaStringPart::Literal(".exe".to_string())
+        );
 
         // Windows paths with escaped backslashes before wildcard
         let result = parse_sigma_string("%SystemRoot%\\\\System32\\\\*.exe");
         assert_eq!(result.parts.len(), 3);
-        assert_eq!(result.parts[0], SigmaStringPart::Literal("%SystemRoot%\\System32\\".to_string()));
+        assert_eq!(
+            result.parts[0],
+            SigmaStringPart::Literal("%SystemRoot%\\System32\\".to_string())
+        );
         assert_eq!(result.parts[1], SigmaStringPart::WildcardMulti);
-        assert_eq!(result.parts[2], SigmaStringPart::Literal(".exe".to_string()));
+        assert_eq!(
+            result.parts[2],
+            SigmaStringPart::Literal(".exe".to_string())
+        );
     }
 
     #[test]
@@ -983,7 +1014,10 @@ mod tests {
         // Unclosed placeholder should be treated as literal
         let result = parse_sigma_string("%unclosed");
         assert_eq!(result.parts.len(), 1);
-        assert_eq!(result.parts[0], SigmaStringPart::Literal("%unclosed".to_string()));
+        assert_eq!(
+            result.parts[0],
+            SigmaStringPart::Literal("%unclosed".to_string())
+        );
 
         // Empty placeholder should be treated as literal
         let result = parse_sigma_string("%%");
@@ -997,9 +1031,15 @@ mod tests {
         let result = parse_sigma_string("*%TEMP%\\file?.log*");
         assert_eq!(result.parts.len(), 5);
         assert_eq!(result.parts[0], SigmaStringPart::WildcardMulti);
-        assert_eq!(result.parts[1], SigmaStringPart::Literal("%TEMP%\\file".to_string()));
+        assert_eq!(
+            result.parts[1],
+            SigmaStringPart::Literal("%TEMP%\\file".to_string())
+        );
         assert_eq!(result.parts[2], SigmaStringPart::WildcardSingle);
-        assert_eq!(result.parts[3], SigmaStringPart::Literal(".log".to_string()));
+        assert_eq!(
+            result.parts[3],
+            SigmaStringPart::Literal(".log".to_string())
+        );
         assert_eq!(result.parts[4], SigmaStringPart::WildcardMulti);
     }
 
@@ -1008,38 +1048,59 @@ mod tests {
         // Escaped wildcard should be literal
         let result = parse_sigma_string(r"\*.exe");
         assert_eq!(result.parts.len(), 1);
-        assert_eq!(result.parts[0], SigmaStringPart::Literal("*.exe".to_string()));
+        assert_eq!(
+            result.parts[0],
+            SigmaStringPart::Literal("*.exe".to_string())
+        );
 
         // Escaped question mark should be literal
         let result = parse_sigma_string(r"file\?.txt");
         assert_eq!(result.parts.len(), 1);
-        assert_eq!(result.parts[0], SigmaStringPart::Literal("file?.txt".to_string()));
+        assert_eq!(
+            result.parts[0],
+            SigmaStringPart::Literal("file?.txt".to_string())
+        );
 
         // Escaped backslash should be literal
         let result = parse_sigma_string(r"path\\to\\file");
         assert_eq!(result.parts.len(), 1);
-        assert_eq!(result.parts[0], SigmaStringPart::Literal(r"path\to\file".to_string()));
+        assert_eq!(
+            result.parts[0],
+            SigmaStringPart::Literal(r"path\to\file".to_string())
+        );
 
         // Backslash before % is treated as literal (% is not special in parse_sigma_string)
         let result = parse_sigma_string(r"\%notplaceholder\%");
         assert_eq!(result.parts.len(), 1);
-        assert_eq!(result.parts[0], SigmaStringPart::Literal("\\%notplaceholder\\%".to_string()));
+        assert_eq!(
+            result.parts[0],
+            SigmaStringPart::Literal("\\%notplaceholder\\%".to_string())
+        );
 
         // Mixed: escaped and non-escaped
         let result = parse_sigma_string(r"*.exe\*");
         assert_eq!(result.parts.len(), 2);
         assert_eq!(result.parts[0], SigmaStringPart::WildcardMulti);
-        assert_eq!(result.parts[1], SigmaStringPart::Literal(".exe*".to_string()));
+        assert_eq!(
+            result.parts[1],
+            SigmaStringPart::Literal(".exe*".to_string())
+        );
 
         // Backslash before non-special char treated as literal
         let result = parse_sigma_string(r"\ntest");
         assert_eq!(result.parts.len(), 1);
-        assert_eq!(result.parts[0], SigmaStringPart::Literal(r"\ntest".to_string()));
+        assert_eq!(
+            result.parts[0],
+            SigmaStringPart::Literal(r"\ntest".to_string())
+        );
 
         // Trailing backslash
         let result = parse_sigma_string(r"test\");
         assert_eq!(result.parts.len(), 1);
-        assert_eq!(result.parts[0], SigmaStringPart::Literal(r"test\".to_string()));
+        assert_eq!(
+            result.parts[0],
+            SigmaStringPart::Literal(r"test\".to_string())
+        );
     }
     #[test]
     fn test_expand_placeholders_basic() {
@@ -1047,8 +1108,14 @@ mod tests {
         let sigma_str = parse_sigma_string("%TEMP%\\\\file.log");
         let expanded = expand_placeholders(&sigma_str);
         assert_eq!(expanded.parts.len(), 2);
-        assert_eq!(expanded.parts[0], SigmaStringPart::Placeholder("TEMP".to_string()));
-        assert_eq!(expanded.parts[1], SigmaStringPart::Literal("\\file.log".to_string()));
+        assert_eq!(
+            expanded.parts[0],
+            SigmaStringPart::Placeholder("TEMP".to_string())
+        );
+        assert_eq!(
+            expanded.parts[1],
+            SigmaStringPart::Literal("\\file.log".to_string())
+        );
     }
 
     #[test]
@@ -1057,10 +1124,19 @@ mod tests {
         let sigma_str = parse_sigma_string("%SystemRoot%/System32/*.exe");
         let expanded = expand_placeholders(&sigma_str);
         assert_eq!(expanded.parts.len(), 4);
-        assert_eq!(expanded.parts[0], SigmaStringPart::Placeholder("SystemRoot".to_string()));
-        assert_eq!(expanded.parts[1], SigmaStringPart::Literal("/System32/".to_string()));
+        assert_eq!(
+            expanded.parts[0],
+            SigmaStringPart::Placeholder("SystemRoot".to_string())
+        );
+        assert_eq!(
+            expanded.parts[1],
+            SigmaStringPart::Literal("/System32/".to_string())
+        );
         assert_eq!(expanded.parts[2], SigmaStringPart::WildcardMulti);
-        assert_eq!(expanded.parts[3], SigmaStringPart::Literal(".exe".to_string()));
+        assert_eq!(
+            expanded.parts[3],
+            SigmaStringPart::Literal(".exe".to_string())
+        );
     }
 
     #[test]
@@ -1069,10 +1145,22 @@ mod tests {
         let sigma_str = parse_sigma_string("%SystemRoot%\\\\%TEMP%\\\\file.log");
         let expanded = expand_placeholders(&sigma_str);
         assert_eq!(expanded.parts.len(), 4);
-        assert_eq!(expanded.parts[0], SigmaStringPart::Placeholder("SystemRoot".to_string()));
-        assert_eq!(expanded.parts[1], SigmaStringPart::Literal("\\".to_string()));
-        assert_eq!(expanded.parts[2], SigmaStringPart::Placeholder("TEMP".to_string()));
-        assert_eq!(expanded.parts[3], SigmaStringPart::Literal("\\file.log".to_string()));
+        assert_eq!(
+            expanded.parts[0],
+            SigmaStringPart::Placeholder("SystemRoot".to_string())
+        );
+        assert_eq!(
+            expanded.parts[1],
+            SigmaStringPart::Literal("\\".to_string())
+        );
+        assert_eq!(
+            expanded.parts[2],
+            SigmaStringPart::Placeholder("TEMP".to_string())
+        );
+        assert_eq!(
+            expanded.parts[3],
+            SigmaStringPart::Literal("\\file.log".to_string())
+        );
     }
 
     #[test]
@@ -1081,13 +1169,19 @@ mod tests {
         let sigma_str = parse_sigma_string("%unclosed");
         let expanded = expand_placeholders(&sigma_str);
         assert_eq!(expanded.parts.len(), 1);
-        assert_eq!(expanded.parts[0], SigmaStringPart::Literal("%unclosed".to_string()));
+        assert_eq!(
+            expanded.parts[0],
+            SigmaStringPart::Literal("%unclosed".to_string())
+        );
 
         // Empty placeholder names should remain as literals
         let sigma_str = parse_sigma_string("%%");
         let expanded = expand_placeholders(&sigma_str);
         assert_eq!(expanded.parts.len(), 1);
-        assert_eq!(expanded.parts[0], SigmaStringPart::Literal("%%".to_string()));
+        assert_eq!(
+            expanded.parts[0],
+            SigmaStringPart::Literal("%%".to_string())
+        );
     }
 
     #[test]
@@ -1097,7 +1191,10 @@ mod tests {
         let expanded = expand_placeholders(&sigma_str);
         assert_eq!(expanded.parts.len(), 2);
         assert_eq!(expanded.parts[0], SigmaStringPart::WildcardMulti);
-        assert_eq!(expanded.parts[1], SigmaStringPart::Literal(".exe".to_string()));
+        assert_eq!(
+            expanded.parts[1],
+            SigmaStringPart::Literal(".exe".to_string())
+        );
     }
 
     #[test]
@@ -1140,12 +1237,18 @@ mod tests {
     #[test]
     fn test_get_i64() {
         let mut map = Mapping::new();
-        map.insert(Value::String("count".to_string()), Value::Number(serde_yaml::Number::from(10)));
+        map.insert(
+            Value::String("count".to_string()),
+            Value::Number(serde_yaml::Number::from(10)),
+        );
         assert_eq!(get_i64(&map, "count"), Some(10));
         assert_eq!(get_i64(&map, "missing"), None);
 
         // Non-number value
-        map.insert(Value::String("text".to_string()), Value::String("hello".to_string()));
+        map.insert(
+            Value::String("text".to_string()),
+            Value::String("hello".to_string()),
+        );
         assert_eq!(get_i64(&map, "text"), None);
     }
 

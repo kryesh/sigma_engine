@@ -59,7 +59,7 @@ use crate::error::{Error, Result};
 use crate::types::*;
 
 // Cache for compiled regex patterns
-static REGEX_CACHE: Lazy<Mutex<HashMap<String, std::result::Result<Regex, String>>>> = 
+static REGEX_CACHE: Lazy<Mutex<HashMap<String, std::result::Result<Regex, String>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// A compiled matcher for a Sigma detection rule.
@@ -152,11 +152,12 @@ impl SigmaRuleMatcher {
     /// Compile a single detection item.
     fn compile_detection_item(item: &DetectionItem) -> Result<CompiledDetectionItem> {
         let mut patterns = Vec::new();
-        
+
         for value in &item.values {
             // For base64offset and windash, we need to generate multiple patterns
-            if item.modifiers.contains(&Modifier::Base64Offset) || 
-               item.modifiers.contains(&Modifier::Windash) {
+            if item.modifiers.contains(&Modifier::Base64Offset)
+                || item.modifiers.contains(&Modifier::Windash)
+            {
                 let expanded_patterns = Self::compile_value_with_expansion(value, &item.modifiers)?;
                 patterns.extend(expanded_patterns);
             } else {
@@ -177,17 +178,18 @@ impl SigmaRuleMatcher {
         match value {
             SigmaValue::String(sigma_str) => {
                 let mut s = sigma_str.to_string();
-                
+
                 // Apply string transformation modifiers
                 s = Self::apply_string_modifiers(&s, modifiers)?;
-                
+
                 // Determine pattern type based on modifiers
                 if modifiers.contains(&Modifier::Re) {
                     Ok(CompiledPattern::Regex(s))
-                } else if sigma_str.has_special_parts() || 
-                          modifiers.contains(&Modifier::Contains) ||
-                          modifiers.contains(&Modifier::StartsWith) ||
-                          modifiers.contains(&Modifier::EndsWith) {
+                } else if sigma_str.has_special_parts()
+                    || modifiers.contains(&Modifier::Contains)
+                    || modifiers.contains(&Modifier::StartsWith)
+                    || modifiers.contains(&Modifier::EndsWith)
+                {
                     Ok(CompiledPattern::Wildcard(s))
                 } else {
                     Ok(CompiledPattern::Exact(s))
@@ -201,16 +203,19 @@ impl SigmaRuleMatcher {
     }
 
     /// Compile a single value with expansion for base64offset and windash.
-    fn compile_value_with_expansion(value: &SigmaValue, modifiers: &[Modifier]) -> Result<Vec<CompiledPattern>> {
+    fn compile_value_with_expansion(
+        value: &SigmaValue,
+        modifiers: &[Modifier],
+    ) -> Result<Vec<CompiledPattern>> {
         if let SigmaValue::String(sigma_str) = value {
             let base_str = sigma_str.to_string();
             let mut variants = vec![base_str.clone()];
-            
+
             // Apply windash first if present
             if modifiers.contains(&Modifier::Windash) {
                 variants = Self::apply_windash_expansion(&variants);
             }
-            
+
             // Apply base64offset if present
             if modifiers.contains(&Modifier::Base64Offset) {
                 variants = Self::apply_base64offset_expansion(&variants, modifiers)?;
@@ -223,22 +228,23 @@ impl SigmaRuleMatcher {
                 }
                 variants = processed_variants;
             }
-            
+
             // Convert all variants to patterns
             let mut patterns = Vec::new();
             for variant in variants {
                 if modifiers.contains(&Modifier::Re) {
                     patterns.push(CompiledPattern::Regex(variant));
-                } else if sigma_str.has_special_parts() || 
-                          modifiers.contains(&Modifier::Contains) ||
-                          modifiers.contains(&Modifier::StartsWith) ||
-                          modifiers.contains(&Modifier::EndsWith) {
+                } else if sigma_str.has_special_parts()
+                    || modifiers.contains(&Modifier::Contains)
+                    || modifiers.contains(&Modifier::StartsWith)
+                    || modifiers.contains(&Modifier::EndsWith)
+                {
                     patterns.push(CompiledPattern::Wildcard(variant));
                 } else {
                     patterns.push(CompiledPattern::Exact(variant));
                 }
             }
-            
+
             Ok(patterns)
         } else {
             // Non-string values just compile normally
@@ -250,98 +256,102 @@ impl SigmaRuleMatcher {
     fn apply_windash_expansion(variants: &[String]) -> Vec<String> {
         // Dash characters: hyphen-minus, solidus, en-dash, em-dash, horizontal bar
         const DASH_CHARS: &[char] = &['-', '/', '–', '—', '―'];
-        
+
         let mut result = Vec::new();
-        
+
         for variant in variants {
             // Find all dash positions
             let chars: Vec<char> = variant.chars().collect();
             let mut dash_positions = Vec::new();
-            
+
             for (i, &ch) in chars.iter().enumerate() {
                 if DASH_CHARS.contains(&ch) {
                     dash_positions.push(i);
                 }
             }
-            
+
             if dash_positions.is_empty() {
                 result.push(variant.clone());
                 continue;
             }
-            
+
             // Generate all permutations
             let num_dashes = dash_positions.len();
             let num_permutations = DASH_CHARS.len().pow(num_dashes as u32);
-            
+
             for perm_idx in 0..num_permutations {
                 let mut new_chars = chars.clone();
                 let mut temp_idx = perm_idx;
-                
+
                 for &pos in &dash_positions {
                     let dash_idx = temp_idx % DASH_CHARS.len();
                     new_chars[pos] = DASH_CHARS[dash_idx];
                     temp_idx /= DASH_CHARS.len();
                 }
-                
+
                 result.push(new_chars.iter().collect());
             }
         }
-        
+
         result
     }
 
     /// Apply base64offset expansion: encode with 0, 1, and 2 byte offsets.
-    fn apply_base64offset_expansion(variants: &[String], modifiers: &[Modifier]) -> Result<Vec<String>> {
+    fn apply_base64offset_expansion(
+        variants: &[String],
+        modifiers: &[Modifier],
+    ) -> Result<Vec<String>> {
         use std::io::Write;
         let mut result = Vec::new();
-        
+
         for variant in variants {
             // Generate 3 variants with different offsets
             for offset in 0..3 {
                 let mut bytes = vec![0u8; offset];
                 bytes.extend_from_slice(variant.as_bytes());
-                
+
                 // Apply other encoding modifiers before base64
-                let encoded_bytes = if modifiers.contains(&Modifier::Wide) || modifiers.contains(&Modifier::Utf16Le) {
+                let encoded_bytes = if modifiers.contains(&Modifier::Wide)
+                    || modifiers.contains(&Modifier::Utf16Le)
+                {
                     // UTF-16LE encoding
                     let utf16: Vec<u16> = variant.encode_utf16().collect();
-                    let mut utf16_bytes: Vec<u8> = utf16.iter()
-                        .flat_map(|&c| c.to_le_bytes())
-                        .collect();
+                    let mut utf16_bytes: Vec<u8> =
+                        utf16.iter().flat_map(|&c| c.to_le_bytes()).collect();
                     let mut result_bytes = vec![0u8; offset];
                     result_bytes.append(&mut utf16_bytes);
                     result_bytes
                 } else if modifiers.contains(&Modifier::Utf16Be) {
                     // UTF-16BE encoding
                     let utf16: Vec<u16> = variant.encode_utf16().collect();
-                    let mut utf16_bytes: Vec<u8> = utf16.iter()
-                        .flat_map(|&c| c.to_be_bytes())
-                        .collect();
+                    let mut utf16_bytes: Vec<u8> =
+                        utf16.iter().flat_map(|&c| c.to_be_bytes()).collect();
                     let mut result_bytes = vec![0u8; offset];
                     result_bytes.append(&mut utf16_bytes);
                     result_bytes
                 } else {
                     bytes
                 };
-                
+
                 // Base64 encode
                 let mut buf = Vec::new();
-                let mut encoder = base64::write::EncoderWriter::new(&mut buf, &base64::engine::general_purpose::STANDARD);
-                encoder.write_all(&encoded_bytes).map_err(|e| {
-                    Error::InvalidValue {
+                let mut encoder = base64::write::EncoderWriter::new(
+                    &mut buf,
+                    &base64::engine::general_purpose::STANDARD,
+                );
+                encoder
+                    .write_all(&encoded_bytes)
+                    .map_err(|e| Error::InvalidValue {
                         field: "base64offset".to_string(),
                         message: e.to_string(),
-                    }
-                })?;
+                    })?;
                 drop(encoder);
-                
-                let encoded = String::from_utf8(buf).map_err(|e| {
-                    Error::InvalidValue {
-                        field: "base64offset".to_string(),
-                        message: e.to_string(),
-                    }
+
+                let encoded = String::from_utf8(buf).map_err(|e| Error::InvalidValue {
+                    field: "base64offset".to_string(),
+                    message: e.to_string(),
                 })?;
-                
+
                 // Skip the padding bytes at the beginning
                 let skip_chars = (offset * 4 + 2) / 3;
                 if encoded.len() > skip_chars {
@@ -349,7 +359,7 @@ impl SigmaRuleMatcher {
                 }
             }
         }
-        
+
         // Apply other string modifiers (contains, startswith, endswith)
         let mut final_result = Vec::new();
         for variant in result {
@@ -363,7 +373,7 @@ impl SigmaRuleMatcher {
             }
             final_result.push(processed);
         }
-        
+
         Ok(final_result)
     }
 
@@ -379,35 +389,32 @@ impl SigmaRuleMatcher {
                 Modifier::Base64 => {
                     use std::io::Write;
                     let mut buf = Vec::new();
-                    let mut encoder = base64::write::EncoderWriter::new(&mut buf, &base64::engine::general_purpose::STANDARD);
-                    encoder.write_all(result.as_bytes()).map_err(|e| {
-                        Error::InvalidValue {
+                    let mut encoder = base64::write::EncoderWriter::new(
+                        &mut buf,
+                        &base64::engine::general_purpose::STANDARD,
+                    );
+                    encoder
+                        .write_all(result.as_bytes())
+                        .map_err(|e| Error::InvalidValue {
                             field: "base64".to_string(),
                             message: e.to_string(),
-                        }
-                    })?;
+                        })?;
                     drop(encoder);
-                    String::from_utf8(buf).map_err(|e| {
-                        Error::InvalidValue {
-                            field: "base64".to_string(),
-                            message: e.to_string(),
-                        }
+                    String::from_utf8(buf).map_err(|e| Error::InvalidValue {
+                        field: "base64".to_string(),
+                        message: e.to_string(),
                     })?
                 }
                 Modifier::Wide | Modifier::Utf16Le => {
                     // Convert to UTF-16LE
                     let utf16: Vec<u16> = result.encode_utf16().collect();
-                    let bytes: Vec<u8> = utf16.iter()
-                        .flat_map(|&c| c.to_le_bytes())
-                        .collect();
+                    let bytes: Vec<u8> = utf16.iter().flat_map(|&c| c.to_le_bytes()).collect();
                     String::from_utf8_lossy(&bytes).to_string()
                 }
                 Modifier::Utf16Be => {
                     // Convert to UTF-16BE
                     let utf16: Vec<u16> = result.encode_utf16().collect();
-                    let bytes: Vec<u8> = utf16.iter()
-                        .flat_map(|&c| c.to_be_bytes())
-                        .collect();
+                    let bytes: Vec<u8> = utf16.iter().flat_map(|&c| c.to_be_bytes()).collect();
                     String::from_utf8_lossy(&bytes).to_string()
                 }
                 // Skip these modifiers as they're handled separately
@@ -439,30 +446,18 @@ impl SigmaRuleMatcher {
     /// Evaluate a condition expression against an event.
     fn eval_condition(&self, expr: &ConditionExpression, event: &HashMap<String, String>) -> bool {
         match expr {
-            ConditionExpression::Identifier(name) => {
-                self.eval_search_identifier(name, event)
-            }
+            ConditionExpression::Identifier(name) => self.eval_search_identifier(name, event),
             ConditionExpression::And(left, right) => {
                 self.eval_condition(left, event) && self.eval_condition(right, event)
             }
             ConditionExpression::Or(left, right) => {
                 self.eval_condition(left, event) || self.eval_condition(right, event)
             }
-            ConditionExpression::Not(inner) => {
-                !self.eval_condition(inner, event)
-            }
-            ConditionExpression::OneOfThem => {
-                self.eval_one_of_them(event)
-            }
-            ConditionExpression::AllOfThem => {
-                self.eval_all_of_them(event)
-            }
-            ConditionExpression::OneOfPattern(pattern) => {
-                self.eval_one_of_pattern(pattern, event)
-            }
-            ConditionExpression::AllOfPattern(pattern) => {
-                self.eval_all_of_pattern(pattern, event)
-            }
+            ConditionExpression::Not(inner) => !self.eval_condition(inner, event),
+            ConditionExpression::OneOfThem => self.eval_one_of_them(event),
+            ConditionExpression::AllOfThem => self.eval_all_of_them(event),
+            ConditionExpression::OneOfPattern(pattern) => self.eval_one_of_pattern(pattern, event),
+            ConditionExpression::AllOfPattern(pattern) => self.eval_all_of_pattern(pattern, event),
         }
     }
 
@@ -470,9 +465,7 @@ impl SigmaRuleMatcher {
     fn eval_search_identifier(&self, name: &str, event: &HashMap<String, String>) -> bool {
         if let Some(search) = self.compiled_searches.get(name) {
             match search {
-                CompiledSearch::Map(items) => {
-                    self.eval_detection_items_and(items, event)
-                }
+                CompiledSearch::Map(items) => self.eval_detection_items_and(items, event),
                 CompiledSearch::MapList(maps) => {
                     // OR-connected list of AND-connected groups
                     for items in maps {
@@ -489,7 +482,11 @@ impl SigmaRuleMatcher {
     }
 
     /// Evaluate a list of detection items with AND logic.
-    fn eval_detection_items_and(&self, items: &[CompiledDetectionItem], event: &HashMap<String, String>) -> bool {
+    fn eval_detection_items_and(
+        &self,
+        items: &[CompiledDetectionItem],
+        event: &HashMap<String, String>,
+    ) -> bool {
         for item in items {
             if !self.eval_detection_item(item, event) {
                 return false;
@@ -499,7 +496,11 @@ impl SigmaRuleMatcher {
     }
 
     /// Evaluate a single detection item against an event.
-    fn eval_detection_item(&self, item: &CompiledDetectionItem, event: &HashMap<String, String>) -> bool {
+    fn eval_detection_item(
+        &self,
+        item: &CompiledDetectionItem,
+        event: &HashMap<String, String>,
+    ) -> bool {
         // Handle exists modifier
         if item.modifiers.contains(&Modifier::Exists) {
             if let Some(field) = &item.field {
@@ -549,7 +550,12 @@ impl SigmaRuleMatcher {
     }
 
     /// Match a compiled pattern against a value.
-    fn match_pattern(&self, pattern: &CompiledPattern, value: &str, modifiers: &[Modifier]) -> bool {
+    fn match_pattern(
+        &self,
+        pattern: &CompiledPattern,
+        value: &str,
+        modifiers: &[Modifier],
+    ) -> bool {
         let case_sensitive = modifiers.contains(&Modifier::Cased);
         let negate = modifiers.contains(&Modifier::Neq);
 
@@ -583,26 +589,18 @@ impl SigmaRuleMatcher {
                     false
                 }
             }
-            CompiledPattern::Bool(b) => {
-                value.eq_ignore_ascii_case(&b.to_string())
-            }
-            CompiledPattern::Null => {
-                value.is_empty() || value.eq_ignore_ascii_case("null")
-            }
+            CompiledPattern::Bool(b) => value.eq_ignore_ascii_case(&b.to_string()),
+            CompiledPattern::Null => value.is_empty() || value.eq_ignore_ascii_case("null"),
         };
 
-        if negate {
-            !matches
-        } else {
-            matches
-        }
+        if negate { !matches } else { matches }
     }
 
     /// Match a wildcard pattern against a value.
     fn match_wildcard(&self, pattern: &str, value: &str, case_sensitive: bool) -> bool {
         let pattern_chars: Vec<char> = pattern.chars().collect();
         let value_chars: Vec<char> = value.chars().collect();
-        
+
         self.match_wildcard_recursive(&pattern_chars, 0, &value_chars, 0, case_sensitive)
     }
 
@@ -631,7 +629,13 @@ impl SigmaRuleMatcher {
                     return true;
                 }
                 if v_idx < value.len() {
-                    return self.match_wildcard_recursive(pattern, p_idx, value, v_idx + 1, case_sensitive);
+                    return self.match_wildcard_recursive(
+                        pattern,
+                        p_idx,
+                        value,
+                        v_idx + 1,
+                        case_sensitive,
+                    );
                 }
                 false
             }
@@ -653,7 +657,13 @@ impl SigmaRuleMatcher {
                     ch.to_ascii_lowercase() == value[v_idx].to_ascii_lowercase()
                 };
                 if matches {
-                    self.match_wildcard_recursive(pattern, p_idx + 1, value, v_idx + 1, case_sensitive)
+                    self.match_wildcard_recursive(
+                        pattern,
+                        p_idx + 1,
+                        value,
+                        v_idx + 1,
+                        case_sensitive,
+                    )
                 } else {
                     false
                 }
@@ -698,10 +708,7 @@ impl SigmaRuleMatcher {
         // Cache the result (either the compiled regex or the error)
         {
             let mut cache = REGEX_CACHE.lock().unwrap();
-            cache.insert(
-                pattern,
-                result.map_err(|e| e.to_string()),
-            );
+            cache.insert(pattern, result.map_err(|e| e.to_string()));
         }
 
         matches
@@ -764,7 +771,9 @@ impl SigmaRuleMatcher {
     /// Evaluate "1 of pattern" - any matching search identifier matches.
     fn eval_one_of_pattern(&self, pattern: &str, event: &HashMap<String, String>) -> bool {
         for name in self.compiled_searches.keys() {
-            if self.match_identifier_pattern(name, pattern) && self.eval_search_identifier(name, event) {
+            if self.match_identifier_pattern(name, pattern)
+                && self.eval_search_identifier(name, event)
+            {
                 return true;
             }
         }
@@ -817,7 +826,10 @@ detection:
 
         let mut event = HashMap::new();
         event.insert("EventID".to_string(), "4688".to_string());
-        event.insert("Image".to_string(), "C:\\Windows\\System32\\cmd.exe".to_string());
+        event.insert(
+            "Image".to_string(),
+            "C:\\Windows\\System32\\cmd.exe".to_string(),
+        );
 
         assert!(matcher.matches(&event));
     }
@@ -867,7 +879,10 @@ detection:
         let matcher = SigmaRuleMatcher::new(rule).unwrap();
 
         let mut event = HashMap::new();
-        event.insert("CommandLine".to_string(), "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe".to_string());
+        event.insert(
+            "CommandLine".to_string(),
+            "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe".to_string(),
+        );
 
         assert!(matcher.matches(&event));
     }
@@ -894,7 +909,10 @@ detection:
 
         let mut event = HashMap::new();
         event.insert("EventID".to_string(), "4688".to_string());
-        event.insert("Image".to_string(), "C:\\Windows\\System32\\cmd.exe".to_string());
+        event.insert(
+            "Image".to_string(),
+            "C:\\Windows\\System32\\cmd.exe".to_string(),
+        );
 
         assert!(matcher.matches(&event));
     }
@@ -922,12 +940,18 @@ detection:
 
         let mut event1 = HashMap::new();
         event1.insert("EventID".to_string(), "4688".to_string());
-        event1.insert("Image".to_string(), "C:\\Windows\\System32\\cmd.exe".to_string());
+        event1.insert(
+            "Image".to_string(),
+            "C:\\Windows\\System32\\cmd.exe".to_string(),
+        );
         assert!(matcher.matches(&event1));
 
         let mut event2 = HashMap::new();
         event2.insert("EventID".to_string(), "4688".to_string());
-        event2.insert("Image".to_string(), "C:\\Windows\\System32\\svchost.exe".to_string());
+        event2.insert(
+            "Image".to_string(),
+            "C:\\Windows\\System32\\svchost.exe".to_string(),
+        );
         assert!(!matcher.matches(&event2));
     }
 
@@ -953,15 +977,24 @@ detection:
         let matcher = SigmaRuleMatcher::new(rule).unwrap();
 
         let mut event1 = HashMap::new();
-        event1.insert("Image".to_string(), "C:\\Windows\\System32\\cmd.exe".to_string());
+        event1.insert(
+            "Image".to_string(),
+            "C:\\Windows\\System32\\cmd.exe".to_string(),
+        );
         assert!(matcher.matches(&event1));
 
         let mut event2 = HashMap::new();
-        event2.insert("Image".to_string(), "C:\\Windows\\System32\\powershell.exe".to_string());
+        event2.insert(
+            "Image".to_string(),
+            "C:\\Windows\\System32\\powershell.exe".to_string(),
+        );
         assert!(matcher.matches(&event2));
 
         let mut event3 = HashMap::new();
-        event3.insert("Image".to_string(), "C:\\Windows\\System32\\notepad.exe".to_string());
+        event3.insert(
+            "Image".to_string(),
+            "C:\\Windows\\System32\\notepad.exe".to_string(),
+        );
         assert!(!matcher.matches(&event3));
     }
 
@@ -987,11 +1020,17 @@ detection:
         let matcher = SigmaRuleMatcher::new(rule).unwrap();
 
         let mut event1 = HashMap::new();
-        event1.insert("CommandLine".to_string(), "powershell.exe -enc abc123 -nop".to_string());
+        event1.insert(
+            "CommandLine".to_string(),
+            "powershell.exe -enc abc123 -nop".to_string(),
+        );
         assert!(matcher.matches(&event1));
 
         let mut event2 = HashMap::new();
-        event2.insert("CommandLine".to_string(), "powershell.exe -enc abc123".to_string());
+        event2.insert(
+            "CommandLine".to_string(),
+            "powershell.exe -enc abc123".to_string(),
+        );
         assert!(!matcher.matches(&event2));
     }
 
@@ -1045,11 +1084,17 @@ detection:
         let matcher = SigmaRuleMatcher::new(rule).unwrap();
 
         let mut event1 = HashMap::new();
-        event1.insert("Image".to_string(), "C:\\Windows\\System32\\cmd.exe".to_string());
+        event1.insert(
+            "Image".to_string(),
+            "C:\\Windows\\System32\\cmd.exe".to_string(),
+        );
         assert!(matcher.matches(&event1));
 
         let mut event2 = HashMap::new();
-        event2.insert("Image".to_string(), "C:\\Program Files\\app.exe".to_string());
+        event2.insert(
+            "Image".to_string(),
+            "C:\\Program Files\\app.exe".to_string(),
+        );
         assert!(!matcher.matches(&event2));
     }
 
@@ -1139,17 +1184,26 @@ detection:
         let matcher = SigmaRuleMatcher::new(rule).unwrap();
 
         let mut event1 = HashMap::new();
-        event1.insert("Image".to_string(), "C:\\Windows\\System32\\cmd.exe".to_string());
+        event1.insert(
+            "Image".to_string(),
+            "C:\\Windows\\System32\\cmd.exe".to_string(),
+        );
         event1.insert("User".to_string(), "admin".to_string());
         assert!(matcher.matches(&event1));
 
         let mut event2 = HashMap::new();
-        event2.insert("Image".to_string(), "C:\\Windows\\System32\\powershell.exe".to_string());
+        event2.insert(
+            "Image".to_string(),
+            "C:\\Windows\\System32\\powershell.exe".to_string(),
+        );
         event2.insert("User".to_string(), "admin".to_string());
         assert!(matcher.matches(&event2));
 
         let mut event3 = HashMap::new();
-        event3.insert("Image".to_string(), "C:\\Windows\\System32\\cmd.exe".to_string());
+        event3.insert(
+            "Image".to_string(),
+            "C:\\Windows\\System32\\cmd.exe".to_string(),
+        );
         event3.insert("User".to_string(), "SYSTEM".to_string());
         assert!(!matcher.matches(&event3));
     }
@@ -1174,7 +1228,10 @@ detection:
         let matcher = SigmaRuleMatcher::new(rule).unwrap();
 
         let mut event1 = HashMap::new();
-        event1.insert("Image".to_string(), "C:\\Windows\\System32\\cmd.exe".to_string());
+        event1.insert(
+            "Image".to_string(),
+            "C:\\Windows\\System32\\cmd.exe".to_string(),
+        );
         assert!(matcher.matches(&event1));
 
         let mut event2 = HashMap::new();
@@ -1207,7 +1264,10 @@ detection:
         let matcher = SigmaRuleMatcher::new(rule).unwrap();
 
         let mut event1 = HashMap::new();
-        event1.insert("Image".to_string(), "C:\\Windows\\System32\\cmd.exe".to_string());
+        event1.insert(
+            "Image".to_string(),
+            "C:\\Windows\\System32\\cmd.exe".to_string(),
+        );
         assert!(matcher.matches(&event1));
 
         let mut event2 = HashMap::new();
@@ -1235,7 +1295,10 @@ detection:
         let matcher = SigmaRuleMatcher::new(rule).unwrap();
 
         let mut event1 = HashMap::new();
-        event1.insert("CommandLine".to_string(), "powershell.exe -enc abc123".to_string());
+        event1.insert(
+            "CommandLine".to_string(),
+            "powershell.exe -enc abc123".to_string(),
+        );
         assert!(matcher.matches(&event1));
 
         let mut event2 = HashMap::new();
@@ -1243,7 +1306,10 @@ detection:
         assert!(!matcher.matches(&event2));
 
         let mut event3 = HashMap::new();
-        event3.insert("CommandLine".to_string(), "test powershell.exe -enc abc123".to_string());
+        event3.insert(
+            "CommandLine".to_string(),
+            "test powershell.exe -enc abc123".to_string(),
+        );
         assert!(!matcher.matches(&event3));
     }
 
@@ -1300,7 +1366,10 @@ detection:
 
         // "test" in base64 is "dGVzdA=="
         let mut event = HashMap::new();
-        event.insert("CommandLine".to_string(), "some dGVzdA== command".to_string());
+        event.insert(
+            "CommandLine".to_string(),
+            "some dGVzdA== command".to_string(),
+        );
         assert!(matcher.matches(&event));
     }
 
@@ -1325,12 +1394,18 @@ detection:
 
         // Test with offset 0: "test" -> "dGVzdA=="
         let mut event1 = HashMap::new();
-        event1.insert("CommandLine".to_string(), "prefix dGVzdA== suffix".to_string());
+        event1.insert(
+            "CommandLine".to_string(),
+            "prefix dGVzdA== suffix".to_string(),
+        );
         assert!(matcher.matches(&event1));
 
         // Test with offset 1: prepend one byte -> "AHRlc3Q=" -> skip 2 -> "Rlc3Q="
         let mut event2 = HashMap::new();
-        event2.insert("CommandLine".to_string(), "prefix Rlc3Q= suffix".to_string());
+        event2.insert(
+            "CommandLine".to_string(),
+            "prefix Rlc3Q= suffix".to_string(),
+        );
         assert!(matcher.matches(&event2));
 
         // Test with offset 2: prepend two bytes -> "AAB0ZXN0" -> skip 3 -> "0ZXN0"
@@ -1598,7 +1673,10 @@ detection:
 
         // Test with mixed dash types
         let mut event = HashMap::new();
-        event.insert("CommandLine".to_string(), "cmd.exe test/flag—value".to_string());
+        event.insert(
+            "CommandLine".to_string(),
+            "cmd.exe test/flag—value".to_string(),
+        );
         assert!(matcher.matches(&event));
     }
 
@@ -1625,12 +1703,18 @@ detection:
         // UTF-16LE of "test" is "t\x00e\x00s\x00t\x00" (bytes: 74 00 65 00 73 00 74 00)
         // Offset 0: "dABlAHMAdAA="
         let mut event = HashMap::new();
-        event.insert("CommandLine".to_string(), "prefix dABlAHMAdAA= suffix".to_string());
+        event.insert(
+            "CommandLine".to_string(),
+            "prefix dABlAHMAdAA= suffix".to_string(),
+        );
         assert!(matcher.matches(&event));
-        
+
         // Offset 1: skip 2 -> "QAZQBzAHQA"
         let mut event2 = HashMap::new();
-        event2.insert("CommandLine".to_string(), "prefix QAZQBzAHQA suffix".to_string());
+        event2.insert(
+            "CommandLine".to_string(),
+            "prefix QAZQBzAHQA suffix".to_string(),
+        );
         assert!(matcher.matches(&event2));
     }
 
@@ -1765,13 +1849,19 @@ detection:
         // Second map matches
         let mut event2 = HashMap::new();
         event2.insert("EventID".to_string(), "4689".to_string());
-        event2.insert("Image".to_string(), "C:\\Windows\\powershell.exe".to_string());
+        event2.insert(
+            "Image".to_string(),
+            "C:\\Windows\\powershell.exe".to_string(),
+        );
         assert!(matcher.matches(&event2));
 
         // Neither matches (wrong combo)
         let mut event3 = HashMap::new();
         event3.insert("EventID".to_string(), "4688".to_string());
-        event3.insert("Image".to_string(), "C:\\Windows\\powershell.exe".to_string());
+        event3.insert(
+            "Image".to_string(),
+            "C:\\Windows\\powershell.exe".to_string(),
+        );
         assert!(!matcher.matches(&event3));
     }
 
@@ -2009,7 +2099,10 @@ detection:
         let matcher = SigmaRuleMatcher::new(rule).unwrap();
 
         let mut event = HashMap::new();
-        event.insert("Field1".to_string(), "this is suspicious activity".to_string());
+        event.insert(
+            "Field1".to_string(),
+            "this is suspicious activity".to_string(),
+        );
         assert!(matcher.matches(&event));
 
         let mut event2 = HashMap::new();
@@ -2493,4 +2586,3 @@ detection:
         assert!(matcher.matches(&event));
     }
 }
-

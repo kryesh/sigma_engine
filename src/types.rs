@@ -185,7 +185,9 @@ impl SigmaString {
 
     /// Returns true if this string contains any wildcards or placeholders.
     pub fn has_special_parts(&self) -> bool {
-        self.parts.iter().any(|p| !matches!(p, SigmaStringPart::Literal(_)))
+        self.parts
+            .iter()
+            .any(|p| !matches!(p, SigmaStringPart::Literal(_)))
     }
 
     /// Converts to a plain string if it contains only a single literal part.

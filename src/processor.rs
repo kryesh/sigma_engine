@@ -68,7 +68,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use serde_json::Value as JsonValue;
 
 use crate::matcher::SigmaRuleMatcher;
@@ -154,9 +154,8 @@ impl LogEvent {
             }
             JsonValue::Array(arr) => {
                 // Convert arrays to comma-separated strings
-                let values: Vec<String> = arr.iter()
-                    .map(|v| Self::json_value_to_string(v))
-                    .collect();
+                let values: Vec<String> =
+                    arr.iter().map(|v| Self::json_value_to_string(v)).collect();
                 fields.insert(prefix, values.join(","));
             }
             _ => {
@@ -177,23 +176,23 @@ impl LogEvent {
     }
 
     /// Parse Field="Value" format into field-value pairs.
-    /// 
+    ///
     /// Note: Field names cannot contain '=' characters. The first '=' encountered
     /// is treated as the separator between field name and value.
     fn parse_field_value_format(text: &str) -> HashMap<String, String> {
         let mut fields = HashMap::new();
         let mut chars = text.chars().peekable();
-        
+
         while chars.peek().is_some() {
             // Skip whitespace
             while chars.peek().map_or(false, |c| c.is_whitespace()) {
                 chars.next();
             }
-            
+
             if chars.peek().is_none() {
                 break;
             }
-            
+
             // Parse field name
             let mut field = String::new();
             while let Some(&ch) = chars.peek() {
@@ -204,12 +203,12 @@ impl LogEvent {
                 field.push(ch);
                 chars.next();
             }
-            
+
             // Skip whitespace after '='
             while chars.peek().map_or(false, |c| c.is_whitespace()) {
                 chars.next();
             }
-            
+
             // Parse value
             let mut value = String::new();
             if chars.peek() == Some(&'"') {
@@ -252,12 +251,12 @@ impl LogEvent {
                     chars.next();
                 }
             }
-            
+
             if !field.is_empty() {
                 fields.insert(field.trim().to_string(), value);
             }
         }
-        
+
         fields
     }
 }
@@ -334,9 +333,7 @@ impl LogProcessor {
     /// Returns a tuple of (event_sender, detection_receiver) for message passing.
     /// Send events to the event_sender, and receive detections from the detection_receiver.
     /// When done sending events, drop the event_sender to signal workers to shut down.
-    pub fn start(
-        &self,
-    ) -> (Sender<LogEvent>, Receiver<Detection>) {
+    pub fn start(&self) -> (Sender<LogEvent>, Receiver<Detection>) {
         let (event_tx, event_rx) = if self.config.event_buffer_size == 0 {
             unbounded()
         } else {
@@ -448,14 +445,16 @@ mod tests {
             category: Some("process_creation".to_string()),
             product: Some("windows".to_string()),
             service: None,
-            
         };
 
         let json = r#"{"EventID": 4688, "Image": "C:\\Windows\\System32\\cmd.exe"}"#;
         let event = LogEvent::from_json(log_source, json).unwrap();
 
         assert_eq!(event.data.get("EventID"), Some(&"4688".to_string()));
-        assert_eq!(event.data.get("Image"), Some(&"C:\\Windows\\System32\\cmd.exe".to_string()));
+        assert_eq!(
+            event.data.get("Image"),
+            Some(&"C:\\Windows\\System32\\cmd.exe".to_string())
+        );
     }
 
     #[test]
@@ -464,7 +463,6 @@ mod tests {
             category: Some("test".to_string()),
             product: None,
             service: None,
-            
         };
 
         let text = "This is a plain log message".to_string();
@@ -479,7 +477,6 @@ mod tests {
             category: Some("test".to_string()),
             product: None,
             service: None,
-            
         };
 
         let text = r#"EventID="4688" User="SYSTEM" CommandLine="cmd.exe /c echo test""#;
@@ -487,7 +484,10 @@ mod tests {
 
         assert_eq!(event.data.get("EventID"), Some(&"4688".to_string()));
         assert_eq!(event.data.get("User"), Some(&"SYSTEM".to_string()));
-        assert_eq!(event.data.get("CommandLine"), Some(&"cmd.exe /c echo test".to_string()));
+        assert_eq!(
+            event.data.get("CommandLine"),
+            Some(&"cmd.exe /c echo test".to_string())
+        );
     }
 
     #[test]
@@ -496,7 +496,6 @@ mod tests {
             category: Some("process_creation".to_string()),
             product: Some("windows".to_string()),
             service: None,
-            
         };
 
         // Exact match
@@ -504,36 +503,44 @@ mod tests {
             category: Some("process_creation".to_string()),
             product: Some("windows".to_string()),
             service: None,
-            
         };
-        assert!(LogProcessor::log_source_matches(&event_source1, &rule_source));
+        assert!(LogProcessor::log_source_matches(
+            &event_source1,
+            &rule_source
+        ));
 
         // Extra fields in event should still match
         let event_source2 = LogSource {
             category: Some("process_creation".to_string()),
             product: Some("windows".to_string()),
             service: Some("security".to_string()),
-            
         };
-        assert!(LogProcessor::log_source_matches(&event_source2, &rule_source));
+        assert!(LogProcessor::log_source_matches(
+            &event_source2,
+            &rule_source
+        ));
 
         // Missing required field should not match
         let event_source3 = LogSource {
             category: Some("process_creation".to_string()),
             product: None,
             service: None,
-            
         };
-        assert!(!LogProcessor::log_source_matches(&event_source3, &rule_source));
+        assert!(!LogProcessor::log_source_matches(
+            &event_source3,
+            &rule_source
+        ));
 
         // Different value should not match
         let event_source4 = LogSource {
             category: Some("network_connection".to_string()),
             product: Some("windows".to_string()),
             service: None,
-            
         };
-        assert!(!LogProcessor::log_source_matches(&event_source4, &rule_source));
+        assert!(!LogProcessor::log_source_matches(
+            &event_source4,
+            &rule_source
+        ));
     }
 
     #[test]
@@ -563,12 +570,14 @@ detection:
             category: Some("process_creation".to_string()),
             product: Some("windows".to_string()),
             service: None,
-            
         };
 
         let mut data = HashMap::new();
         data.insert("EventID".to_string(), "4688".to_string());
-        data.insert("Image".to_string(), "C:\\Windows\\System32\\cmd.exe".to_string());
+        data.insert(
+            "Image".to_string(),
+            "C:\\Windows\\System32\\cmd.exe".to_string(),
+        );
 
         let event = LogEvent::from_fields(log_source, data);
         event_tx.send(event).unwrap();
@@ -577,14 +586,17 @@ detection:
         // Receive detection
         let detection = detection_rx.recv().unwrap();
         assert_eq!(detection.rule.title, "Test Rule");
-        assert_eq!(detection.event.data.get("EventID"), Some(&"4688".to_string()));
+        assert_eq!(
+            detection.event.data.get("EventID"),
+            Some(&"4688".to_string())
+        );
     }
 
     #[test]
     fn test_parse_field_value_with_spaces() {
         let text = r#"Field1="value with spaces" Field2="another value""#;
         let fields = LogEvent::parse_field_value_format(text);
-        
+
         assert_eq!(fields.get("Field1"), Some(&"value with spaces".to_string()));
         assert_eq!(fields.get("Field2"), Some(&"another value".to_string()));
     }
@@ -593,7 +605,7 @@ detection:
     fn test_parse_field_value_unquoted() {
         let text = "EventID=4688 User=SYSTEM";
         let fields = LogEvent::parse_field_value_format(text);
-        
+
         assert_eq!(fields.get("EventID"), Some(&"4688".to_string()));
         assert_eq!(fields.get("User"), Some(&"SYSTEM".to_string()));
     }
@@ -621,15 +633,9 @@ detection:
             "true"
         );
         // Null
-        assert_eq!(
-            LogEvent::json_value_to_string(&serde_json::json!(null)),
-            ""
-        );
+        assert_eq!(LogEvent::json_value_to_string(&serde_json::json!(null)), "");
         // Number
-        assert_eq!(
-            LogEvent::json_value_to_string(&serde_json::json!(42)),
-            "42"
-        );
+        assert_eq!(LogEvent::json_value_to_string(&serde_json::json!(42)), "42");
         // Array (other)
         let arr = serde_json::json!([1, 2]);
         let result = LogEvent::json_value_to_string(&arr);
@@ -680,21 +686,30 @@ detection:
             product: None,
             service: Some("security".to_string()),
         };
-        assert!(LogProcessor::log_source_matches(&event_source1, &rule_source));
+        assert!(LogProcessor::log_source_matches(
+            &event_source1,
+            &rule_source
+        ));
 
         let event_source2 = LogSource {
             category: None,
             product: None,
             service: Some("application".to_string()),
         };
-        assert!(!LogProcessor::log_source_matches(&event_source2, &rule_source));
+        assert!(!LogProcessor::log_source_matches(
+            &event_source2,
+            &rule_source
+        ));
 
         let event_source3 = LogSource {
             category: None,
             product: None,
             service: None,
         };
-        assert!(!LogProcessor::log_source_matches(&event_source3, &rule_source));
+        assert!(!LogProcessor::log_source_matches(
+            &event_source3,
+            &rule_source
+        ));
     }
 
     #[test]
@@ -710,7 +725,10 @@ detection:
             product: None,
             service: None,
         };
-        assert!(!LogProcessor::log_source_matches(&event_source, &rule_source));
+        assert!(!LogProcessor::log_source_matches(
+            &event_source,
+            &rule_source
+        ));
     }
 
     #[test]
