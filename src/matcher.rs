@@ -353,7 +353,7 @@ impl SigmaRuleMatcher {
                 })?;
 
                 // Skip the padding bytes at the beginning
-                let skip_chars = (offset * 4 + 2) / 3;
+                let skip_chars = (offset * 4).div_ceil(3);
                 if encoded.len() > skip_chars {
                     result.push(encoded[skip_chars..].to_string());
                 }
@@ -654,7 +654,7 @@ impl SigmaRuleMatcher {
                 let matches = if case_sensitive {
                     ch == value[v_idx]
                 } else {
-                    ch.to_ascii_lowercase() == value[v_idx].to_ascii_lowercase()
+                    ch.eq_ignore_ascii_case(&value[v_idx])
                 };
                 if matches {
                     self.match_wildcard_recursive(

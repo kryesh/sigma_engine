@@ -192,10 +192,10 @@ impl SigmaString {
 
     /// Converts to a plain string if it contains only a single literal part.
     pub fn as_plain(&self) -> Option<&str> {
-        if self.parts.len() == 1 {
-            if let SigmaStringPart::Literal(s) = &self.parts[0] {
-                return Some(s);
-            }
+        if self.parts.len() == 1
+            && let SigmaStringPart::Literal(s) = &self.parts[0]
+        {
+            return Some(s);
         }
         None
     }

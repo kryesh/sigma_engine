@@ -105,7 +105,7 @@ impl ProcessingPipeline {
         rule: &mut SigmaRule,
     ) -> Result<()> {
         // Sort by priority (ascending - lower priority values are applied first)
-        pipelines.sort_by(|a, b| a.priority.cmp(&b.priority));
+        pipelines.sort_by_key(|a| a.priority);
 
         for pipeline in pipelines {
             pipeline.apply(rule)?;
@@ -339,20 +339,20 @@ impl ProcessingItem {
                 match search_id {
                     SearchIdentifier::Map(items) => {
                         for item in items {
-                            if let Some(field) = &mut item.field {
-                                if self.check_field_conditions(field) {
-                                    *field = format!("{}{}", prefix, field);
-                                }
+                            if let Some(field) = &mut item.field
+                                && self.check_field_conditions(field)
+                            {
+                                *field = format!("{}{}", prefix, field);
                             }
                         }
                     }
                     SearchIdentifier::MapList(maps) => {
                         for items in maps {
                             for item in items {
-                                if let Some(field) = &mut item.field {
-                                    if self.check_field_conditions(field) {
-                                        *field = format!("{}{}", prefix, field);
-                                    }
+                                if let Some(field) = &mut item.field
+                                    && self.check_field_conditions(field)
+                                {
+                                    *field = format!("{}{}", prefix, field);
                                 }
                             }
                         }
@@ -369,20 +369,20 @@ impl ProcessingItem {
                 match search_id {
                     SearchIdentifier::Map(items) => {
                         for item in items {
-                            if let Some(field) = &mut item.field {
-                                if self.check_field_conditions(field) {
-                                    *field = format!("{}{}", field, suffix);
-                                }
+                            if let Some(field) = &mut item.field
+                                && self.check_field_conditions(field)
+                            {
+                                *field = format!("{}{}", field, suffix);
                             }
                         }
                     }
                     SearchIdentifier::MapList(maps) => {
                         for items in maps {
                             for item in items {
-                                if let Some(field) = &mut item.field {
-                                    if self.check_field_conditions(field) {
-                                        *field = format!("{}{}", field, suffix);
-                                    }
+                                if let Some(field) = &mut item.field
+                                    && self.check_field_conditions(field)
+                                {
+                                    *field = format!("{}{}", field, suffix);
                                 }
                             }
                         }
@@ -452,20 +452,20 @@ impl ProcessingItem {
                 match search_id {
                     SearchIdentifier::Map(items) => {
                         for item in items {
-                            if let Some(field) = &item.field {
-                                if self.check_field_conditions(field) {
-                                    self.replace_in_values(&mut item.values, &re, replacement);
-                                }
+                            if let Some(field) = &item.field
+                                && self.check_field_conditions(field)
+                            {
+                                self.replace_in_values(&mut item.values, &re, replacement);
                             }
                         }
                     }
                     SearchIdentifier::MapList(maps) => {
                         for items in maps {
                             for item in items {
-                                if let Some(field) = &item.field {
-                                    if self.check_field_conditions(field) {
-                                        self.replace_in_values(&mut item.values, &re, replacement);
-                                    }
+                                if let Some(field) = &item.field
+                                    && self.check_field_conditions(field)
+                                {
+                                    self.replace_in_values(&mut item.values, &re, replacement);
                                 }
                             }
                         }
@@ -503,20 +503,20 @@ impl ProcessingItem {
                 match search_id {
                     SearchIdentifier::Map(items) => {
                         for item in items {
-                            if let Some(field) = &item.field {
-                                if self.check_field_conditions(field) {
-                                    self.map_string_values(&mut item.values, mapping);
-                                }
+                            if let Some(field) = &item.field
+                                && self.check_field_conditions(field)
+                            {
+                                self.map_string_values(&mut item.values, mapping);
                             }
                         }
                     }
                     SearchIdentifier::MapList(maps) => {
                         for items in maps {
                             for item in items {
-                                if let Some(field) = &item.field {
-                                    if self.check_field_conditions(field) {
-                                        self.map_string_values(&mut item.values, mapping);
-                                    }
+                                if let Some(field) = &item.field
+                                    && self.check_field_conditions(field)
+                                {
+                                    self.map_string_values(&mut item.values, mapping);
                                 }
                             }
                         }
@@ -536,12 +536,11 @@ impl ProcessingItem {
             if let SigmaValue::String(sigma_str) = value {
                 // Only map simple string values
                 // Complex strings with wildcards/placeholders are intentionally skipped
-                if let Some(plain) = sigma_str.as_plain() {
-                    if let Some(new_values) = mapping.get(plain) {
-                        if let Some(new_value) = new_values.first() {
-                            *sigma_str = SigmaString::from_literal(new_value.clone());
-                        }
-                    }
+                if let Some(plain) = sigma_str.as_plain()
+                    && let Some(new_values) = mapping.get(plain)
+                    && let Some(new_value) = new_values.first()
+                {
+                    *sigma_str = SigmaString::from_literal(new_value.clone());
                 }
             }
         }
@@ -718,19 +717,17 @@ impl ProcessingItem {
 
     fn replace_placeholders_with_wildcards(&self, values: &mut Vec<SigmaValue>) {
         for value in values {
-            if let SigmaValue::String(sigma_str) = value {
-                if sigma_str.parts.iter().any(|p| matches!(p, SigmaStringPart::Placeholder(name) if self.is_handled_placeholder(name))) {
+            if let SigmaValue::String(sigma_str) = value
+                && sigma_str.parts.iter().any(|p| matches!(p, SigmaStringPart::Placeholder(name) if self.is_handled_placeholder(name))) {
                     let new_parts: Vec<SigmaStringPart> = sigma_str.parts.iter().map(|part| {
-                        if let SigmaStringPart::Placeholder(name) = part {
-                            if self.is_handled_placeholder(name) {
+                        if let SigmaStringPart::Placeholder(name) = part
+                            && self.is_handled_placeholder(name) {
                                 return SigmaStringPart::WildcardMulti;
             }
-                        }
                         part.clone()
                     }).collect();
                     sigma_str.parts = new_parts;
                 }
-            }
         }
     }
 
@@ -2470,10 +2467,10 @@ transformations:
             custom: HashMap::new(),
         };
         pipeline.apply(&mut rule).unwrap();
-        if let SearchIdentifier::MapList(maps) = &rule.detection.search_identifiers["sel"] {
-            if let SigmaValue::String(s) = &maps[0][0].values[0] {
-                assert_eq!(s.parts[0], SigmaStringPart::WildcardMulti);
-            }
+        if let SearchIdentifier::MapList(maps) = &rule.detection.search_identifiers["sel"]
+            && let SigmaValue::String(s) = &maps[0][0].values[0]
+        {
+            assert_eq!(s.parts[0], SigmaStringPart::WildcardMulti);
         }
     }
 
@@ -2530,10 +2527,10 @@ transformations:
             custom: HashMap::new(),
         };
         pipeline.apply(&mut rule).unwrap();
-        if let SearchIdentifier::MapList(maps) = &rule.detection.search_identifiers["sel"] {
-            if let SigmaValue::String(s) = &maps[0][0].values[0] {
-                assert_eq!(s.as_plain(), Some("val1"));
-            }
+        if let SearchIdentifier::MapList(maps) = &rule.detection.search_identifiers["sel"]
+            && let SigmaValue::String(s) = &maps[0][0].values[0]
+        {
+            assert_eq!(s.as_plain(), Some("val1"));
         }
     }
 
